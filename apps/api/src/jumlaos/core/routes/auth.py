@@ -171,8 +171,7 @@ async def otp_verify(
             action="auth.otp.verify_failed",
             entity_type="auth",
             after={"phone": phone, "reason": "not_found_or_expired"},
-            ip=ip,
-            user_agent=user_agent,
+            request=request,
         )
         raise Unauthorized("otp_not_found_or_expired")
 
@@ -184,8 +183,7 @@ async def otp_verify(
             action="auth.otp.verify_failed",
             entity_type="auth",
             after={"phone": phone, "reason": "locked"},
-            ip=ip,
-            user_agent=user_agent,
+            request=request,
         )
         raise Unauthorized("otp_locked")
 
@@ -203,8 +201,7 @@ async def otp_verify(
             action="auth.otp.verify_failed",
             entity_type="auth",
             after={"phone": phone, "reason": "mismatch", "attempts": otp.attempts + 1},
-            ip=ip,
-            user_agent=user_agent,
+            request=request,
         )
         raise Unauthorized("otp_mismatch")
 
@@ -257,8 +254,7 @@ async def otp_verify(
         user_id=user.id,
         action="auth.login",
         entity_type="auth",
-        ip=ip,
-        user_agent=user_agent,
+        request=request,
     )
 
     return OtpVerifyResponse(
