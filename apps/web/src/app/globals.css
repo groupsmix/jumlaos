@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+  }
+
+  html[dir="rtl"] {
+    text-align: start;
+  }
+
+  /* Make number inputs LTR even inside RTL pages so the cursor sits on the right side. */
+  input[type="tel"],
+  input[type="number"] {
+    direction: ltr;
+    text-align: start;
+  }
+}

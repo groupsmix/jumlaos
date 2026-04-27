@@ -1,0 +1,18 @@
+title = "JumlaOS gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Acceptable placeholders"
+paths = [
+  '''\.env\.example$''',
+  '''\.env\.test$''',
+  '''docs/.*\.md$''',
+  '''README\.md$''',
+]
+regexes = [
+  '''change-me-to-a-long-random-string-at-least-32-chars''',
+  '''^\+?212\d{9}$''',           # Moroccan phone numbers in fixtures
+  '''"otp"\s*:\s*"000000"''',    # dev-mode deterministic OTP
+]

@@ -1,0 +1,24 @@
+{
+  "name": "jumlaos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JumlaOS — the operating system for Moroccan wholesalers.",
+  "packageManager": "pnpm@9.12.3",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @jumlaos/web dev",
+    "build": "pnpm -r --filter \"./packages/*\" build && pnpm --filter @jumlaos/web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.8"
+  }
+}

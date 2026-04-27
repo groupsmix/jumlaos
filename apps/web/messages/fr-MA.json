@@ -1,0 +1,51 @@
+{
+  "brand": {
+    "name": "JumlaOS",
+    "tagline": "Le système d'exploitation des grossistes marocains"
+  },
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "debtors": "Clients à crédit",
+    "invoices": "Factures",
+    "orders": "Commandes",
+    "stock": "Stock",
+    "settings": "Paramètres",
+    "logout": "Se déconnecter"
+  },
+  "auth": {
+    "title": "Connexion",
+    "phone_label": "Numéro de téléphone",
+    "phone_placeholder": "06 XX XX XX XX",
+    "send_otp": "Envoyer le code",
+    "code_label": "Code de vérification",
+    "verify": "Vérifier",
+    "code_sent": "Nous vous avons envoyé un code par WhatsApp",
+    "back": "Retour"
+  },
+  "dashboard": {
+    "title": "Aperçu",
+    "outstanding": "Total des créances",
+    "debtor_count": "Nombre de clients",
+    "overdue_count": "Clients en retard",
+    "collections_30d": "Encaissements 30 j",
+    "top_debtors": "Plus gros débiteurs"
+  },
+  "debtors": {
+    "title": "Clients à crédit",
+    "new": "Nouveau client",
+    "name": "Nom",
+    "phone": "Téléphone",
+    "city": "Ville",
+    "outstanding": "Solde dû",
+    "days_overdue": "Jours de retard",
+    "empty": "Pas encore de clients",
+    "blocked": "Bloqué"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "loading": "Chargement…",
+    "error_generic": "Une erreur est survenue. Réessayez.",
+    "search": "Recherche"
+  }
+}

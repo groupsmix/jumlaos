@@ -1,0 +1,102 @@
+"""Meta WhatsApp Cloud API webhook handlers."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from jumlaos.config import get_settings
+from jumlaos.core.deps import db
+from jumlaos.logging import get_logger
+from jumlaos.talab.models import WaInboundMessage
+
+router = APIRouter()
+log = get_logger(__name__)
+
+
+@router.get("/webhook/whatsapp", include_in_schema=False)
+async def verify_subscription(
+    mode: str = Query(alias="hub.mode"),
+    token: str = Query(alias="hub.verify_token"),
+    challenge: str = Query(alias="hub.challenge"),
+) -> str:
+    """Meta calls this once when you subscribe. Returns `challenge` as-is."""
+    settings = get_settings()
+    if mode == "subscribe" and token == settings.whatsapp_webhook_verify_token:
+        return challenge
+    raise HTTPException(status_code=403, detail="verification_failed")
+
+
+def _verify_signature(body: bytes, signature_header: str | None, secret: str) -> bool:
+    if not signature_header or not secret:
+        return False
+    try:
+        algo, sig = signature_header.split("=", 1)
+    except ValueError:
+        return False
+    if algo != "sha256":
+        return False
+    mac = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(mac, sig)
+
+
+@router.post("/webhook/whatsapp")
+async def whatsapp_inbound(
+    request: Request,
+    session: AsyncSession = Depends(db),
+) -> dict[str, str]:
+    """Receive WhatsApp inbound messages.
+
+    Stores the raw payload for replay-safety before any state mutation.
+    Parsing is done asynchronously by a Procrastinate worker (see
+    `jumlaos.workers`).
+    """
+    settings = get_settings()
+    body = await request.body()
+    if settings.whatsapp_app_secret and not _verify_signature(
+        body, request.headers.get("x-hub-signature-256"), settings.whatsapp_app_secret
+    ):
+        raise HTTPException(status_code=403, detail="bad_signature")
+
+    try:
+        payload = json.loads(body or b"{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="bad_json") from exc
+
+    count = 0
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value") or {}
+            messages = value.get("messages") or []
+            for msg in messages:
+                wa_id = msg.get("id")
+                from_phone = msg.get("from")
+                if not wa_id or not from_phone:
+                    continue
+                # Replay-safe: unique index on wa_message_id rejects duplicates.
+                existing = (
+                    await session.execute(
+                        select(WaInboundMessage).where(WaInboundMessage.wa_message_id == wa_id)
+                    )
+                ).scalar_one_or_none()
+                if existing is not None:
+                    continue
+
+                phone_e164 = from_phone if from_phone.startswith("+") else f"+{from_phone}"
+                session.add(
+                    WaInboundMessage(
+                        wa_message_id=wa_id,
+                        from_phone_e164=phone_e164,
+                        raw_payload=msg,
+                        message_type=msg.get("type", "unknown"),
+                    )
+                )
+                count += 1
+
+    log.info("wa_inbound_received", count=count)
+    return {"status": "ok"}

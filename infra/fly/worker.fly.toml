@@ -1,0 +1,22 @@
+# Fly.io config for JumlaOS Procrastinate workers
+
+app            = "jumlaos-worker"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "../../apps/api/Dockerfile"
+
+[env]
+  JUMLAOS_ENV     = "prod"
+  JUMLAOS_ROLE    = "worker"
+  JUMLAOS_LOG_LEVEL = "INFO"
+
+[processes]
+  worker = "uv run python -m jumlaos.workers.entrypoint"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[deploy]
+  strategy = "rolling"

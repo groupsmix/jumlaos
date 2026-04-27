@@ -1,0 +1,43 @@
+# Fly.io config for the JumlaOS API (primary: Paris)
+# Create app: flyctl apps create jumlaos-api --org jumlaos
+# Deploy:     flyctl deploy --config infra/fly/api.fly.toml
+
+app            = "jumlaos-api"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "../../apps/api/Dockerfile"
+
+[env]
+  JUMLAOS_ENV     = "prod"
+  JUMLAOS_LOG_LEVEL = "INFO"
+  PORT            = "8080"
+
+[http_service]
+  internal_port       = 8080
+  force_https         = true
+  auto_stop_machines  = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout  = "5s"
+    grace_period = "30s"
+    method   = "GET"
+    path     = "/v1/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[deploy]
+  strategy = "rolling"

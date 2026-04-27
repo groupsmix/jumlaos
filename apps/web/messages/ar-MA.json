@@ -1,0 +1,51 @@
+{
+  "brand": {
+    "name": "JumlaOS",
+    "tagline": "نظام التشغيل لتجار الجملة في المغرب"
+  },
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "debtors": "الزبناء بالكريدي",
+    "invoices": "الفواتير",
+    "orders": "الطلبيات",
+    "stock": "المخزون",
+    "settings": "الإعدادات",
+    "logout": "تسجيل الخروج"
+  },
+  "auth": {
+    "title": "تسجيل الدخول",
+    "phone_label": "رقم الهاتف",
+    "phone_placeholder": "06 XX XX XX XX",
+    "send_otp": "إرسال الرمز",
+    "code_label": "رمز التحقق",
+    "verify": "تحقق",
+    "code_sent": "أرسلنا لك رمزا في واتساب",
+    "back": "رجوع"
+  },
+  "dashboard": {
+    "title": "نظرة عامة",
+    "outstanding": "إجمالي الديون",
+    "debtor_count": "عدد الزبناء",
+    "overdue_count": "زبناء متأخرون",
+    "collections_30d": "المداخيل في 30 يوم",
+    "top_debtors": "أكبر الزبناء بالديون"
+  },
+  "debtors": {
+    "title": "الزبناء بالكريدي",
+    "new": "زبون جديد",
+    "name": "الاسم",
+    "phone": "الهاتف",
+    "city": "المدينة",
+    "outstanding": "الدين",
+    "days_overdue": "أيام التأخر",
+    "empty": "لا يوجد زبناء بعد",
+    "blocked": "محظور"
+  },
+  "common": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "loading": "جار التحميل…",
+    "error_generic": "وقع خطأ. عاود المحاولة.",
+    "search": "بحث"
+  }
+}
