@@ -35,17 +35,19 @@ class TestJwt:
         token = issue_access_token(user_id=7, business_id=3, role="owner")
         payload = decode_token(token, expected_type="access")
         assert payload["sub"] == "7"
-        assert payload["bid"] == 3
-        assert payload["role"] == "owner"
+        assert payload["bid"] == "3"
+        assert payload["rol"] == "owner"
 
     def test_refresh_token_roundtrip(self) -> None:
-        token = issue_refresh_token(user_id=9)
+        token, jti = issue_refresh_token(user_id=9)
         payload = decode_token(token, expected_type="refresh")
         assert payload["sub"] == "9"
         assert payload["typ"] == "refresh"
+        assert "jti" in payload
+        assert payload["jti"] == jti
 
     def test_wrong_type_rejected(self) -> None:
-        refresh = issue_refresh_token(user_id=1)
+        refresh, _ = issue_refresh_token(user_id=1)
         with pytest.raises(Unauthorized):
             decode_token(refresh, expected_type="access")
 

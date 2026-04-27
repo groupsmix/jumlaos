@@ -66,13 +66,47 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Content-Type", "Authorization", "X-CSRF-Token", "Idempotency-Key", "X-Request-ID"],
         expose_headers=["X-Request-ID"],
         max_age=600,
     )
 
     @app.middleware("http")
-    async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
+    async def secure_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if request.url.path.startswith("/v1/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.middleware("http")
+    async def csrf_and_context(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            # If it's an API request with cookies, we should check Origin/Referer
+            if origin:
+                if origin not in settings.cors_origins:
+                    return ORJSONResponse(
+                        status_code=403, content={"detail": "CSRF Origin mismatch"}
+                    )
+            elif referer:
+                # Basic referer check
+                if not any(referer.startswith(o) for o in settings.cors_origins):
+                    return ORJSONResponse(
+                        status_code=403, content={"detail": "CSRF Referer mismatch"}
+                    )
+            # Require Origin or Referer for mutating requests to prevent CSRF,
+            # UNLESS it's a webhook or a direct API client using a Bearer token (no cookie).
+            # But to be safe against CSRF (which uses cookies), we can just check if cookies are present.
+            elif request.cookies.get("jumlaos_access"):
+                return ORJSONResponse(
+                    status_code=403, content={"detail": "CSRF missing Origin/Referer"}
+                )
+
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:

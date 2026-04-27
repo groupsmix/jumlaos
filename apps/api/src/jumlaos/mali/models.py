@@ -81,6 +81,7 @@ class Debtor(Base, TimestampMixin, SoftDeleteMixin):
     alias_normalized: Mapped[str] = mapped_column(String(200), nullable=False)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     address_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ice_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     credit_limit_centimes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     risk_score: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
@@ -134,6 +135,7 @@ class DebtEvent(Base):
     voided_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -194,6 +196,7 @@ class Invoice(Base, TimestampMixin):
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MAD", nullable=False)
     pdf_r2_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -250,6 +253,7 @@ class Payment(Base, TimestampMixin):
     )
     amount_centimes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     attachment_r2_key: Mapped[str | None] = mapped_column(String(300), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

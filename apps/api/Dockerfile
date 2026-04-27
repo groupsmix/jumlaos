@@ -26,7 +26,10 @@ COPY apps/api/alembic.ini /app/alembic.ini
 
 EXPOSE 8080
 
+RUN useradd -u 10001 -m appuser && chown -R appuser /app
+USER appuser
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:${PORT}/v1/health || exit 1
+  CMD curl -fsS http://localhost:${PORT}/v1/readyz || exit 1
 
 CMD ["uv", "run", "uvicorn", "jumlaos.main:app", "--host", "0.0.0.0", "--port", "8080"]

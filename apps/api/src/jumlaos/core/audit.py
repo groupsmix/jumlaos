@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from jumlaos.core.db import get_sessionmaker
 from jumlaos.core.models import AuditLog
 
 
@@ -20,16 +21,23 @@ async def record(
     before: dict[str, Any] | None = None,
     after: dict[str, Any] | None = None,
     request_id: str | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
 ) -> None:
-    session.add(
-        AuditLog(
-            business_id=business_id,
-            user_id=user_id,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            before=before,
-            after=after,
-            request_id=request_id,
+    # Use a separate session to ensure the audit log is committed even if the main transaction rolls back
+    async with get_sessionmaker()() as audit_session:
+        audit_session.add(
+            AuditLog(
+                business_id=business_id,
+                user_id=user_id,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                before=before,
+                after=after,
+                request_id=request_id,
+                ip=ip,
+                user_agent=user_agent,
+            )
         )
-    )
+        await audit_session.commit()

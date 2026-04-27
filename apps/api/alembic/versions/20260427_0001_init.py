@@ -498,14 +498,314 @@ def upgrade() -> None:
         sa.UniqueConstraint("business_id", "period_start", name="uq_tax_periods_business_start"),
     )
 
-    # ---- Talab + Makhzen tables: created in later migrations as those modules
-    # come online. For now we keep the schema minimal to ship Mali at week 10.
+    # ---- Makhzen tables ----
+    product_unit = postgresql.ENUM(
+        "piece", "kg", "liter", "box", "dozen", "bottle", name="product_unit"
+    )
+    product_unit.create(op.get_bind(), checkfirst=True)
+    product_status = postgresql.ENUM("active", "archived", name="product_status")
+    product_status.create(op.get_bind(), checkfirst=True)
+    stock_movement_kind = postgresql.ENUM(
+        "receipt",
+        "sale",
+        "transfer_out",
+        "transfer_in",
+        "adjustment",
+        "writeoff",
+        "expiry",
+        name="stock_movement_kind",
+    )
+    stock_movement_kind.create(op.get_bind(), checkfirst=True)
+
+    op.create_table(
+        "warehouses",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column("name", sa.String(100), nullable=False),
+        sa.Column("address_text", sa.Text()),
+        sa.Column("lat", sa.Numeric(10, 7)),
+        sa.Column("lng", sa.Numeric(10, 7)),
+        sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+    )
+
+    op.create_table(
+        "products",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("sku", sa.String(64), nullable=False),
+        sa.Column("barcode_ean", sa.String(32)),
+        sa.Column("name_ar", sa.String(200), nullable=False),
+        sa.Column("name_fr", sa.String(200)),
+        sa.Column("name_normalized", sa.String(200), nullable=False),
+        sa.Column("category", sa.String(100)),
+        sa.Column("brand", sa.String(100)),
+        sa.Column("unit", product_unit, nullable=False, server_default="piece"),
+        sa.Column("conversion_to_base_qty", sa.Numeric(14, 4), nullable=False, server_default="1"),
+        sa.Column(
+            "default_purchase_price_centimes", sa.BigInteger(), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "default_sell_price_centimes", sa.BigInteger(), nullable=False, server_default="0"
+        ),
+        sa.Column("is_perishable", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("default_shelf_life_days", sa.Integer()),
+        sa.Column("vat_rate_bps", sa.Integer(), nullable=False, server_default="2000"),
+        sa.Column("image_r2_key", sa.String(300)),
+        sa.Column("status", product_status, nullable=False, server_default="active"),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.UniqueConstraint("business_id", "sku", name="uq_products_business_sku"),
+    )
+    op.create_index("ix_products_business_barcode", "products", ["business_id", "barcode_ean"])
+    op.create_index(
+        "ix_products_business_name_norm", "products", ["business_id", "name_normalized"]
+    )
+
+    op.create_table(
+        "stock_lots",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "product_id",
+            sa.BigInteger(),
+            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "warehouse_id",
+            sa.BigInteger(),
+            sa.ForeignKey("warehouses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("qty_remaining", sa.Numeric(14, 4), nullable=False),
+        sa.Column("unit_cost_centimes", sa.BigInteger(), nullable=False),
+        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", sa.Date()),
+        sa.Column("lot_number", sa.String(64)),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+    )
+    op.create_index(
+        "ix_stock_lots_bus_product_expiry",
+        "stock_lots",
+        ["business_id", "product_id", "expires_at"],
+        postgresql_where=sa.text("qty_remaining > 0"),
+    )
+
+    op.create_table(
+        "stock_movements",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "product_id",
+            sa.BigInteger(),
+            sa.ForeignKey("products.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "warehouse_id",
+            sa.BigInteger(),
+            sa.ForeignKey("warehouses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("lot_id", sa.BigInteger(), sa.ForeignKey("stock_lots.id", ondelete="SET NULL")),
+        sa.Column("kind", stock_movement_kind, nullable=False),
+        sa.Column("qty", sa.Numeric(14, 4), nullable=False),
+        sa.Column("unit_cost_centimes", sa.BigInteger()),
+        sa.Column("related_order_id", sa.BigInteger()),
+        sa.Column("related_invoice_id", sa.BigInteger()),
+        sa.Column("reason", sa.String(200)),
+        sa.Column("voided", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+    )
+    op.create_index(
+        "ix_stock_movements_bus_product_ts",
+        "stock_movements",
+        ["business_id", "product_id", "created_at"],
+    )
+
+    # ---- Talab tables ----
+    order_intake_source = postgresql.ENUM("whatsapp", "web", "phone", name="order_intake_source")
+    order_intake_source.create(op.get_bind(), checkfirst=True)
+    order_intake_status = postgresql.ENUM(
+        "queued", "parsed", "confirmed", "rejected", name="order_intake_status"
+    )
+    order_intake_status.create(op.get_bind(), checkfirst=True)
+    order_status = postgresql.ENUM(
+        "draft",
+        "confirmed",
+        "picked",
+        "out_for_delivery",
+        "delivered",
+        "cancelled",
+        "refused",
+        name="order_status",
+    )
+    order_status.create(op.get_bind(), checkfirst=True)
+    order_payment_method = postgresql.ENUM(
+        "cash_on_delivery", "credit", "prepaid", "bank_transfer", name="order_payment_method"
+    )
+    order_payment_method.create(op.get_bind(), checkfirst=True)
+
+    op.create_table(
+        "order_intakes",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("source", order_intake_source, nullable=False),
+        sa.Column("from_phone_e164", sa.String(20), index=True),
+        sa.Column("raw_text", sa.Text()),
+        sa.Column("voice_r2_key", sa.String(300)),
+        sa.Column("image_r2_key", sa.String(300)),
+        sa.Column("transcript_text", sa.Text()),
+        sa.Column("transcript_confidence", sa.Numeric(4, 3)),
+        sa.Column("ocr_text", sa.Text()),
+        sa.Column("ocr_confidence", sa.Numeric(4, 3)),
+        sa.Column(
+            "parsed", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+        ),
+        sa.Column("parser_version", sa.String(32)),
+        sa.Column("status", order_intake_status, nullable=False, server_default="queued"),
+        sa.Column("wa_message_id", sa.String(128), unique=True),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+    )
+    op.create_index("ix_order_intakes_bus_created", "order_intakes", ["business_id", "created_at"])
+
+    op.create_table(
+        "orders",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id",
+            sa.BigInteger(),
+            sa.ForeignKey("businesses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("debtor_id", sa.BigInteger(), sa.ForeignKey("debtors.id", ondelete="SET NULL")),
+        sa.Column(
+            "order_intake_id",
+            sa.BigInteger(),
+            sa.ForeignKey("order_intakes.id", ondelete="SET NULL"),
+        ),
+        sa.Column("number", sa.String(32)),
+        sa.Column("status", order_status, nullable=False, server_default="draft"),
+        sa.Column("delivery_window_start", sa.DateTime(timezone=True)),
+        sa.Column("delivery_window_end", sa.DateTime(timezone=True)),
+        sa.Column("delivery_address_text", sa.Text()),
+        sa.Column("delivery_lat", sa.Numeric(10, 7)),
+        sa.Column("delivery_lng", sa.Numeric(10, 7)),
+        sa.Column(
+            "driver_user_id", sa.BigInteger(), sa.ForeignKey("users.id", ondelete="SET NULL")
+        ),
+        sa.Column("payment_method", order_payment_method, nullable=False, server_default="credit"),
+        sa.Column("subtotal_centimes", sa.BigInteger(), nullable=False, server_default="0"),
+        sa.Column("total_centimes", sa.BigInteger(), nullable=False, server_default="0"),
+        sa.Column("notes", sa.Text()),
+        sa.Column("confirmed_at", sa.DateTime(timezone=True)),
+        sa.Column("delivered_at", sa.DateTime(timezone=True)),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.UniqueConstraint("business_id", "number", name="uq_orders_business_number"),
+    )
+
+    op.create_table(
+        "order_lines",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "order_id",
+            sa.BigInteger(),
+            sa.ForeignKey("orders.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("product_id", sa.BigInteger()),
+        sa.Column("description", sa.String(300), nullable=False),
+        sa.Column("qty_requested", sa.Numeric(14, 4), nullable=False),
+        sa.Column("qty_picked", sa.Numeric(14, 4)),
+        sa.Column("qty_delivered", sa.Numeric(14, 4)),
+        sa.Column("unit_price_centimes", sa.BigInteger(), nullable=False),
+        sa.Column("line_total_centimes", sa.BigInteger(), nullable=False),
+    )
+
+    op.create_table(
+        "wa_inbound_messages",
+        sa.Column("id", sa.BigInteger(), primary_key=True),
+        sa.Column(
+            "business_id", sa.BigInteger(), sa.ForeignKey("businesses.id", ondelete="SET NULL")
+        ),
+        sa.Column("wa_message_id", sa.String(128), nullable=False, unique=True),
+        sa.Column("from_phone_e164", sa.String(20), nullable=False),
+        sa.Column("raw_payload", postgresql.JSONB(), nullable=False),
+        sa.Column("message_type", sa.String(32), nullable=False),
+        sa.Column("processed_at", sa.DateTime(timezone=True)),
+        sa.Column("processing_error", sa.Text()),
+        sa.Column(
+            "received_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.create_index(
+        "ix_wa_inbound_bus_received", "wa_inbound_messages", ["business_id", "received_at"]
+    )
 
 
 def downgrade() -> None:
     """Drop everything. Money tables are append-only in prod; downgrades are
     only used in dev/CI."""
     for t in (
+        "wa_inbound_messages",
+        "order_lines",
+        "orders",
+        "order_intakes",
+        "stock_movements",
+        "stock_lots",
+        "products",
+        "warehouses",
         "tax_periods",
         "reminders",
         "payments",
@@ -526,6 +826,13 @@ def downgrade() -> None:
     ):
         op.drop_table(t)
     for enum_name in (
+        "order_payment_method",
+        "order_status",
+        "order_intake_status",
+        "order_intake_source",
+        "stock_movement_kind",
+        "product_status",
+        "product_unit",
         "tax_period_status",
         "payment_method",
         "invoice_status",

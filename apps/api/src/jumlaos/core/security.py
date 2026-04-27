@@ -13,7 +13,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from jose import JWTError, jwt
+import jwt
 
 from jumlaos.config import get_settings
 from jumlaos.core.errors import Unauthorized
@@ -42,35 +42,48 @@ def generate_otp(*, dev_override: str | None = None) -> str:
 def issue_access_token(*, user_id: int, business_id: int | None, role: str | None) -> str:
     settings = get_settings()
     now = utcnow()
-    payload: dict[str, Any] = {
+    payload = {
         "sub": str(user_id),
-        "bid": business_id,
-        "role": role,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=settings.access_token_ttl_seconds)).timestamp()),
         "typ": "access",
+        "aud": "jumlaos-api",
+        "iss": f"jumlaos-{settings.env}",
     }
+    if business_id is not None:
+        payload["bid"] = str(business_id)
+    if role is not None:
+        payload["rol"] = role
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
-def issue_refresh_token(*, user_id: int) -> str:
+def issue_refresh_token(*, user_id: int) -> tuple[str, str]:
     settings = get_settings()
     now = utcnow()
+    jti = secrets.token_hex(16)
     payload = {
         "sub": str(user_id),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=settings.refresh_token_ttl_seconds)).timestamp()),
         "typ": "refresh",
-        "jti": secrets.token_hex(16),
+        "aud": "jumlaos-api",
+        "iss": f"jumlaos-{settings.env}",
+        "jti": jti,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM), jti
 
 
 def decode_token(token: str, *, expected_type: str) -> dict[str, Any]:
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-    except JWTError as exc:
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[ALGORITHM],
+            audience="jumlaos-api",
+            issuer=f"jumlaos-{settings.env}",
+        )
+    except jwt.PyJWTError as exc:
         raise Unauthorized("invalid_token") from exc
     if payload.get("typ") != expected_type:
         raise Unauthorized("wrong_token_type")

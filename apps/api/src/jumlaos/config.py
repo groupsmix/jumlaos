@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
         default="postgresql://jumlaos:jumlaos@localhost:5432/jumlaos",
         validation_alias="DATABASE_URL_SYNC",
     )
+    database_pool_size: int = Field(default=20, validation_alias="DATABASE_POOL_SIZE")
+    database_max_overflow: int = Field(default=10, validation_alias="DATABASE_MAX_OVERFLOW")
     redis_url: str = Field(default="redis://localhost:6379/0", validation_alias="REDIS_URL")
 
     # Auth
@@ -77,6 +80,19 @@ class Settings(BaseSettings):
         if len(value) < 32:
             raise ValueError("JUMLAOS_SECRET_KEY must be at least 32 characters")
         return value
+
+    @model_validator(mode="after")
+    def _validate_prod_security(self) -> Settings:
+        if os.getenv("FLY_APP_NAME") and self.env == "dev":
+            raise ValueError("Cannot run in dev mode on Fly.io. Set JUMLAOS_ENV=prod or staging.")
+        if self.env in ("prod", "staging"):
+            if self.secret_key == "dev-secret-key-change-me-in-prod-must-be-32-chars-or-more":
+                raise ValueError("Must provide secure JUMLAOS_SECRET_KEY in prod/staging")
+            if self.whatsapp_webhook_verify_token == "dev-verify-token":
+                raise ValueError("Must provide secure WHATSAPP_WEBHOOK_VERIFY_TOKEN in prod/staging")
+            if not self.whatsapp_app_secret:
+                raise ValueError("Must provide secure WHATSAPP_APP_SECRET in prod/staging")
+        return self
 
     @property
     def is_prod(self) -> bool:

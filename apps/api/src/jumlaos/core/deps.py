@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Coroutine
+from typing import Any
 
 from fastapi import Cookie, Depends, Header
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.core.context import RequestContext
@@ -38,7 +39,7 @@ async def current_context(
 
     user_id_raw = payload.get("sub")
     business_id = payload.get("bid")
-    role_raw = payload.get("role")
+    role_raw = payload.get("rol")
     if user_id_raw is None or business_id is None or role_raw is None:
         raise Unauthorized("incomplete_token")
 
@@ -54,14 +55,18 @@ async def current_context(
     if (await session.execute(stmt)).scalar_one_or_none() is None:
         raise Forbidden("membership_revoked_or_missing")
 
+    await session.execute(text(f"SET LOCAL app.business_id = '{business_id}'"))
+
     return RequestContext(user_id=user_id, business_id=int(business_id), role=role)
 
 
-def require_role(*roles: Role):  # type: ignore[no-untyped-def]
-    """Return a dependency that asserts the caller has one of the roles."""
+def require_module(module_name: str) -> Callable[[RequestContext, AsyncSession], Coroutine[Any, Any, RequestContext]]:
+    async def _check(ctx: RequestContext = Depends(current_context), session: AsyncSession = Depends(db)) -> RequestContext:
+        from sqlalchemy import select
 
-    async def _check(ctx: RequestContext = Depends(current_context)) -> RequestContext:
-        ctx.require(*roles)
+        from jumlaos.core.models import Business
+        business = (await session.execute(select(Business).where(Business.id == ctx.business_id))).scalar_one_or_none()
+        if not business or not business.modules_enabled.get(module_name, False):
+            raise Forbidden(f"module_{module_name}_not_enabled")
         return ctx
-
     return _check

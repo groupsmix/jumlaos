@@ -95,8 +95,8 @@ jobs:
         run: |
           uv python install ${{ env.PYTHON_VERSION }}
           uv sync
-          uvx pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph || true
+          uvx pip-audit --strict --ignore-vuln GHSA-4xh5-x5gv-qwph
       - name: pnpm audit
         run: |
           pnpm install --frozen-lockfile
-          pnpm audit --prod --audit-level=high || true
+          pnpm audit --prod --audit-level=high

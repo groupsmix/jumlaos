@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.config import get_settings
 from jumlaos.core.deps import db
+from jumlaos.core.models import Business
 from jumlaos.logging import get_logger
 from jumlaos.talab.models import WaInboundMessage
 
@@ -58,10 +59,17 @@ async def whatsapp_inbound(
     """
     settings = get_settings()
     body = await request.body()
-    if settings.whatsapp_app_secret and not _verify_signature(
-        body, request.headers.get("x-hub-signature-256"), settings.whatsapp_app_secret
-    ):
-        raise HTTPException(status_code=403, detail="bad_signature")
+
+    if not settings.whatsapp_app_secret and not settings.is_dev:
+        raise HTTPException(status_code=500, detail="missing_secret_in_prod")
+
+    if settings.whatsapp_app_secret:
+        if not _verify_signature(
+            body, request.headers.get("x-hub-signature-256"), settings.whatsapp_app_secret
+        ):
+            raise HTTPException(status_code=403, detail="bad_signature")
+    else:
+        log.warning("whatsapp_webhook_signature_skipped_in_dev")
 
     try:
         payload = json.loads(body or b"{}")
@@ -78,6 +86,22 @@ async def whatsapp_inbound(
                 from_phone = msg.get("from")
                 if not wa_id or not from_phone:
                     continue
+
+                phone_number_id = value.get("metadata", {}).get("phone_number_id")
+                if not phone_number_id:
+                    log.warning("wa_inbound_missing_phone_number_id", wa_id=wa_id)
+                    continue
+
+                business_id = (
+                    await session.execute(
+                        select(Business.id).where(Business.whatsapp_phone_number_id == phone_number_id)
+                    )
+                ).scalar_one_or_none()
+
+                if not business_id:
+                    log.warning("wa_inbound_business_not_found", phone_number_id=phone_number_id)
+                    continue
+
                 # Replay-safe: unique index on wa_message_id rejects duplicates.
                 existing = (
                     await session.execute(
@@ -90,6 +114,7 @@ async def whatsapp_inbound(
                 phone_e164 = from_phone if from_phone.startswith("+") else f"+{from_phone}"
                 session.add(
                     WaInboundMessage(
+                        business_id=business_id,
                         wa_message_id=wa_id,
                         from_phone_e164=phone_e164,
                         raw_payload=msg,

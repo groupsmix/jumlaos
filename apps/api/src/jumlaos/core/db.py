@@ -33,8 +33,8 @@ def _make_engine() -> Any:
     return create_async_engine(
         settings.database_url,
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
         future=True,
     )
 
