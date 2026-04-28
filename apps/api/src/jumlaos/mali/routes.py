@@ -608,9 +608,11 @@ async def export_tax_period(
     except ValueError as exc:
         raise NotFound("invalid_period_format") from exc
 
+    # LEFT JOIN: Invoice.debtor_id is nullable, and the DGI export must include every issued
+    # invoice for the period (compliance), even when no debtor is linked.
     stmt = (
         select(Invoice, Debtor)
-        .join(Debtor, Invoice.debtor_id == Debtor.id)
+        .outerjoin(Debtor, Invoice.debtor_id == Debtor.id)
         .where(
             Invoice.business_id == ctx.business_id,
             Invoice.status != "draft",
@@ -639,7 +641,7 @@ async def export_tax_period(
             [
                 inv.number or "",
                 inv.issued_at.date().isoformat() if inv.issued_at else "",
-                debtor.ice_number or "",
+                (debtor.ice_number if debtor else "") or "",
                 f"{inv.subtotal_centimes / 100:.2f}",
                 f"{inv.vat_centimes / 100:.2f}",
                 f"{inv.total_centimes / 100:.2f}",

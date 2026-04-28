@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.core.db import get_sessionmaker
@@ -28,7 +29,13 @@ async def record(
     user_agent = request.headers.get("user-agent") if request else None
 
     # Audit writes go through a fresh session so they survive rollbacks of the caller's transaction.
+    # The new session must apply app.business_id so the audit_log RLS policy permits the insert.
     async with get_sessionmaker()() as audit_session:
+        rls_value = str(business_id) if business_id is not None else "system"
+        # set_config(name, value, is_local=true) is the parameter-binding-safe equivalent of SET LOCAL.
+        await audit_session.execute(
+            text("SELECT set_config('app.business_id', :v, true)"), {"v": rls_value}
+        )
         audit_session.add(
             AuditLog(
                 business_id=business_id,

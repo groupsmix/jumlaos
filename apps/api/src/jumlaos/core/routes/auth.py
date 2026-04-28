@@ -188,10 +188,16 @@ async def otp_verify(
     if not verify_code(body.code, otp.code_hash):
         from sqlalchemy import text
 
-        await session.execute(
-            text("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = :id"), {"id": otp.id}
-        )
-        await session.commit()
+        from jumlaos.core.db import get_sessionmaker
+
+        # Increment attempts in an isolated session: the surrounding handler raises
+        # Unauthorized below, which would roll back the request session and lose the write.
+        async with get_sessionmaker()() as attempt_session:
+            await attempt_session.execute(
+                text("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = :id"),
+                {"id": otp.id},
+            )
+            await attempt_session.commit()
         await audit_record(
             session,
             business_id=None,

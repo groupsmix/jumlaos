@@ -21,7 +21,7 @@ def upgrade() -> None:
     settings = get_settings()
     app = procrastinate.App(
         connector=procrastinate.AiopgConnector(
-            dsn=settings.database_url,
+            dsn=settings.database_url_sync,
         ),
     )
     schema_manager = procrastinate.schema.SchemaManager(app.connector)
