@@ -1,10 +1,15 @@
+from collections.abc import Awaitable, Callable
+
 from fastapi import Request
 from fastapi.responses import ORJSONResponse
+from starlette.responses import Response
 
 from jumlaos.core.db import get_sessionmaker
 
 
-async def idempotency_middleware(request: Request, call_next):
+async def idempotency_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     idem_key = request.headers.get("idempotency-key")
     if not idem_key or request.method not in ("POST", "PATCH", "DELETE", "PUT"):
         return await call_next(request)
@@ -43,6 +48,9 @@ async def idempotency_middleware(request: Request, call_next):
         # if error, we might delete the idempotency key so they can retry
         async with async_session() as session:
             from sqlalchemy import text
-            await session.execute(text("DELETE FROM idempotency_keys WHERE idempotency_key = :k"), {"k": idem_key})
+
+            await session.execute(
+                text("DELETE FROM idempotency_keys WHERE idempotency_key = :k"), {"k": idem_key}
+            )
             await session.commit()
         raise e

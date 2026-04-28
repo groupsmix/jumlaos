@@ -60,13 +60,21 @@ async def current_context(
     return RequestContext(user_id=user_id, business_id=int(business_id), role=role)
 
 
-def require_module(module_name: str) -> Callable[[RequestContext, AsyncSession], Coroutine[Any, Any, RequestContext]]:
-    async def _check(ctx: RequestContext = Depends(current_context), session: AsyncSession = Depends(db)) -> RequestContext:
+def require_module(
+    module_name: str,
+) -> Callable[[RequestContext, AsyncSession], Coroutine[Any, Any, RequestContext]]:
+    async def _check(
+        ctx: RequestContext = Depends(current_context), session: AsyncSession = Depends(db)
+    ) -> RequestContext:
         from sqlalchemy import select
 
         from jumlaos.core.models import Business
-        business = (await session.execute(select(Business).where(Business.id == ctx.business_id))).scalar_one_or_none()
+
+        business = (
+            await session.execute(select(Business).where(Business.id == ctx.business_id))
+        ).scalar_one_or_none()
         if not business or not business.modules_enabled.get(module_name, False):
             raise Forbidden(f"module_{module_name}_not_enabled")
         return ctx
+
     return _check

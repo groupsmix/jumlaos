@@ -89,7 +89,9 @@ class Settings(BaseSettings):
             if self.secret_key == "dev-secret-key-change-me-in-prod-must-be-32-chars-or-more":
                 raise ValueError("Must provide secure JUMLAOS_SECRET_KEY in prod/staging")
             if self.whatsapp_webhook_verify_token == "dev-verify-token":
-                raise ValueError("Must provide secure WHATSAPP_WEBHOOK_VERIFY_TOKEN in prod/staging")
+                raise ValueError(
+                    "Must provide secure WHATSAPP_WEBHOOK_VERIFY_TOKEN in prod/staging"
+                )
             if not self.whatsapp_app_secret:
                 raise ValueError("Must provide secure WHATSAPP_APP_SECRET in prod/staging")
         return self

@@ -160,8 +160,6 @@ async def otp_verify(
         .limit(1)
     )
     otp = (await session.execute(stmt)).scalar_one_or_none()
-    ip = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
 
     if otp is None:
         await audit_record(
@@ -189,9 +187,9 @@ async def otp_verify(
 
     if not verify_code(body.code, otp.code_hash):
         from sqlalchemy import text
+
         await session.execute(
-            text("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = :id"),
-            {"id": otp.id}
+            text("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = :id"), {"id": otp.id}
         )
         await session.commit()
         await audit_record(
@@ -303,7 +301,9 @@ async def refresh_tokens(
     user_id = int(payload["sub"])
     jti = payload["jti"]
 
-    rt = (await session.execute(select(RefreshToken).where(RefreshToken.jti == jti))).scalar_one_or_none()
+    rt = (
+        await session.execute(select(RefreshToken).where(RefreshToken.jti == jti))
+    ).scalar_one_or_none()
     if not rt or rt.revoked_at is not None:
         raise Unauthorized("refresh_token_revoked_or_invalid")
 

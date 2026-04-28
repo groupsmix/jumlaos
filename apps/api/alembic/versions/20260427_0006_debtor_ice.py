@@ -15,9 +15,16 @@ down_revision = "0005_auth_and_wa"
 branch_labels = None
 depends_on = None
 
+
 def upgrade() -> None:
     op.add_column("debtors", sa.Column("ice_number", sa.String(32)))
-    op.create_index("ix_invoices_business_status_issued_at", "invoices", ["business_id", "issued_at"], postgresql_where=sa.text("status != 'draft'"))
+    op.create_index(
+        "ix_invoices_business_status_issued_at",
+        "invoices",
+        ["business_id", "issued_at"],
+        postgresql_where=sa.text("status != 'draft'"),
+    )
+
 
 def downgrade() -> None:
     op.drop_index("ix_invoices_business_status_issued_at", table_name="invoices")

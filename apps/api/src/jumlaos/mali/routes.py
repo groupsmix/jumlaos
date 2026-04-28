@@ -615,7 +615,7 @@ async def export_tax_period(
             Invoice.business_id == ctx.business_id,
             Invoice.status != "draft",
             Invoice.issued_at >= f"{year:04d}-{month:02d}-01",
-            Invoice.issued_at < f"{year + (month // 12):04d}-{(month % 12) + 1:02d}-01"
+            Invoice.issued_at < f"{year + (month // 12):04d}-{(month % 12) + 1:02d}-01",
         )
         .order_by(Invoice.number.asc())
     )

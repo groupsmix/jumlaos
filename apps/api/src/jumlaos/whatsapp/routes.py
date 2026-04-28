@@ -94,7 +94,9 @@ async def whatsapp_inbound(
 
                 business_id = (
                     await session.execute(
-                        select(Business.id).where(Business.whatsapp_phone_number_id == phone_number_id)
+                        select(Business.id).where(
+                            Business.whatsapp_phone_number_id == phone_number_id
+                        )
                     )
                 ).scalar_one_or_none()
 

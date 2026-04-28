@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from typing import Any
-from fastapi import Request
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.core.db import get_sessionmaker
@@ -26,8 +26,8 @@ async def record(
 ) -> None:
     ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
-    
-    # Use a separate session to ensure the audit log is committed even if the main transaction rolls back
+
+    # Audit writes go through a fresh session so they survive rollbacks of the caller's transaction.
     async with get_sessionmaker()() as audit_session:
         audit_session.add(
             AuditLog(

@@ -18,7 +18,7 @@ async def main() -> None:
     log = get_logger("jumlaos.worker")
     settings = get_settings()
     log.info("worker_starting", env=settings.env)
-    
+
     async with app.open_async():
         await app.run_worker_async()
 

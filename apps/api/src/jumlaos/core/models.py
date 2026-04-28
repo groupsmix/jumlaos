@@ -118,7 +118,9 @@ class Business(Base, TimestampMixin, SoftDeleteMixin):
         JSONB, nullable=False, default=lambda: {"mali": True, "talab": False, "makhzen": False}
     )
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
+    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(
+        String(50), unique=True, nullable=True
+    )
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="business")
 
