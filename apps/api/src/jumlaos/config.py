@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = 600
     otp_max_attempts: int = 5
     otp_lockout_seconds: int = 900
+    otp_transport: Literal["whatsapp", "sms", "log"] = Field(
+        default="log", validation_alias="OTP_TRANSPORT"
+    )
+
+    # Request limits
+    max_request_bytes: int = Field(default=256 * 1024, validation_alias="JUMLAOS_MAX_REQUEST_BYTES")
+    max_webhook_bytes: int = Field(
+        default=16 * 1024 * 1024, validation_alias="JUMLAOS_MAX_WEBHOOK_BYTES"
+    )
+
+    # SMS fallback (Twilio-compatible). Empty => SMS transport disabled.
+    sms_provider: Literal["twilio", "none"] = Field(default="none", validation_alias="SMS_PROVIDER")
+    sms_account_sid: str = Field(default="", validation_alias="SMS_ACCOUNT_SID")
+    sms_auth_token: str = Field(default="", validation_alias="SMS_AUTH_TOKEN")
+    sms_from_number: str = Field(default="", validation_alias="SMS_FROM_NUMBER")
 
     # WhatsApp Cloud API
     whatsapp_phone_number_id: str = Field(default="", validation_alias="WHATSAPP_PHONE_NUMBER_ID")
@@ -94,6 +109,26 @@ class Settings(BaseSettings):
                 )
             if not self.whatsapp_app_secret:
                 raise ValueError("Must provide secure WHATSAPP_APP_SECRET in prod/staging")
+            # F21: refuse to boot prod with default infra/origin values.
+            if self.database_url == "postgresql+asyncpg://jumlaos:jumlaos@localhost:5432/jumlaos":
+                raise ValueError("Must provide secure DATABASE_URL in prod/staging")
+            if self.database_url_sync == "postgresql://jumlaos:jumlaos@localhost:5432/jumlaos":
+                raise ValueError("Must provide secure DATABASE_URL_SYNC in prod/staging")
+            if "localhost" in self.redis_url or self.redis_url == "redis://localhost:6379/0":
+                raise ValueError("Must provide non-localhost REDIS_URL in prod/staging")
+            if self.allowed_origins == "http://localhost:3000":
+                raise ValueError("Must provide secure JUMLAOS_ALLOWED_ORIGINS in prod/staging")
+            if self.otp_transport == "log":
+                raise ValueError("OTP_TRANSPORT=log is not allowed in prod/staging")
+            if self.otp_transport == "sms" and self.sms_provider == "none":
+                raise ValueError("OTP_TRANSPORT=sms requires a configured SMS_PROVIDER")
+            if self.otp_transport == "whatsapp" and not (
+                self.whatsapp_phone_number_id and self.whatsapp_access_token
+            ):
+                raise ValueError(
+                    "OTP_TRANSPORT=whatsapp requires WHATSAPP_PHONE_NUMBER_ID + "
+                    "WHATSAPP_ACCESS_TOKEN"
+                )
         return self
 
     @property

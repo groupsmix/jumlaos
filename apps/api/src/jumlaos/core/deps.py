@@ -55,7 +55,9 @@ async def current_context(
     if (await session.execute(stmt)).scalar_one_or_none() is None:
         raise Forbidden("membership_revoked_or_missing")
 
-    await session.execute(text(f"SET LOCAL app.business_id = '{business_id}'"))
+    await session.execute(
+        text("SELECT set_config('app.business_id', :v, true)").bindparams(v=str(business_id))
+    )
 
     return RequestContext(user_id=user_id, business_id=int(business_id), role=role)
 

@@ -160,7 +160,9 @@ class RefreshToken(Base, TimestampMixin):
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     jti: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    family_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -259,3 +261,72 @@ class Subscription(Base, TimestampMixin):
     provider: Mapped[str] = mapped_column(String(32), default="cmi", nullable=False)
     last_payment_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class AuditOutbox(Base):
+    """Outbox row written on the caller's session in the same TX as the
+    business action. A Procrastinate task drains it into ``audit_log``.
+    Rolling back the caller's transaction also rolls back the audit entry,
+    so we never log work that did not actually happen.
+    """
+
+    __tablename__ = "audit_outbox"
+    __table_args__ = (
+        Index(
+            "ix_audit_outbox_unprocessed",
+            "created_at",
+            postgresql_where="processed_at IS NULL",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    business_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    actor_kind: Mapped[str] = mapped_column(String(32), default="user", nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IdempotencyKey(Base):
+    """Idempotency-Key persistence scoped by ``(business_id, user_id, key)``.
+
+    business_id=0 / user_id=0 represent system / anonymous (pre-auth) callers.
+    The composite UNIQUE allows the same key to be reused across tenants and
+    users without collision.
+    """
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id", "user_id", "idempotency_key", name="uq_idempotency_keys_scope"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    business_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    method: Mapped[str] = mapped_column(String(8), nullable=False)
+    path: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
