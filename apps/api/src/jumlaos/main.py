@@ -2,7 +2,7 @@
 
 Mounts per-module routers under `/v1` and wires global middleware.
 Everything under `/v1` requires auth except `/v1/auth/*`, `/v1/health`,
-`/v1/ready`, and signed webhooks.
+`/v1/livez`, `/v1/readyz`, and signed webhooks.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from jumlaos import __version__
 from jumlaos.config import get_settings
 from jumlaos.core.errors import register_exception_handlers
+from jumlaos.core.idempotency import idempotency_middleware
 from jumlaos.core.routes import auth as auth_routes
 from jumlaos.core.routes import health as health_routes
 from jumlaos.core.routes import me as me_routes
@@ -29,6 +30,11 @@ from jumlaos.logging import configure_logging, get_logger
 from jumlaos.mali.routes import router as mali_router
 from jumlaos.talab.routes import router as talab_router
 from jumlaos.whatsapp.routes import router as whatsapp_router
+
+# Webhook prefixes that bypass CSRF Origin/Referer enforcement.
+# These routes are HMAC-authenticated and called by external systems
+# (Meta, payment providers) that do not send a browser Origin/Referer.
+WEBHOOK_PATH_PREFIXES = ("/v1/webhook/",)
 
 
 @asynccontextmanager
@@ -51,13 +57,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     settings = get_settings()
 
+    # F17: do not expose Swagger UI in prod.
+    docs_url = None if settings.is_prod else "/v1/docs"
+
     app = FastAPI(
         title="JumlaOS API",
         version=__version__,
         default_response_class=ORJSONResponse,
-        docs_url="/v1/docs",
+        docs_url=docs_url,
         redoc_url=None,
-        openapi_url="/v1/openapi.json",
+        openapi_url="/v1/openapi.json" if not settings.is_prod else None,
         lifespan=lifespan,
     )
 
@@ -88,31 +97,51 @@ def create_app() -> FastAPI:
         response.headers["Referrer-Policy"] = "no-referrer"
         if request.url.path.startswith("/v1/auth/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/v1/") and request.url.path not in (
+            "/v1/livez",
+            "/v1/readyz",
+            "/v1/health",
+        ):
+            # Quick win: never cache authenticated API responses.
+            response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     @app.middleware("http")
+    async def body_size_limit(request: Request, call_next):  # type: ignore[no-untyped-def]
+        # F25: enforce a hard cap on request bodies to defend against memory DoS.
+        is_webhook = any(request.url.path.startswith(p) for p in WEBHOOK_PATH_PREFIXES)
+        limit = settings.max_webhook_bytes if is_webhook else settings.max_request_bytes
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                if int(cl) > limit:
+                    return ORJSONResponse(
+                        status_code=413, content={"error": {"code": "request_too_large"}}
+                    )
+            except ValueError:
+                return ORJSONResponse(
+                    status_code=400, content={"error": {"code": "bad_content_length"}}
+                )
+        return await call_next(request)
+
+    @app.middleware("http")
     async def csrf_and_context(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        # F09: webhooks are HMAC-authenticated and exempt from Origin/Referer checks.
+        is_webhook = any(request.url.path.startswith(p) for p in WEBHOOK_PATH_PREFIXES)
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not is_webhook:
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")
-            # If it's an API request with cookies, we should check Origin/Referer
-            if origin:
-                if origin not in settings.cors_origins:
-                    return ORJSONResponse(
-                        status_code=403, content={"detail": "CSRF Origin mismatch"}
-                    )
-            elif referer:
-                # Basic referer check
-                if not any(referer.startswith(o) for o in settings.cors_origins):
-                    return ORJSONResponse(
-                        status_code=403, content={"detail": "CSRF Referer mismatch"}
-                    )
-            # Require Origin or Referer for mutating requests to prevent CSRF,
-            # UNLESS it's a webhook or a direct API client using a Bearer token (no cookie).
-            # But to be safe against CSRF (which uses cookies), we can just check if cookies are present.
-            elif request.cookies.get("jumlaos_access"):
+            origin_ok = origin is not None and origin in settings.cors_origins
+            referer_ok = referer is not None and any(
+                referer.startswith(o) for o in settings.cors_origins
+            )
+            # Default-deny: a mutating request must present a recognised Origin
+            # OR Referer regardless of cookie presence. This protects both
+            # cookie-authenticated and bearer-authenticated callers from CSRF.
+            if not (origin_ok or referer_ok):
                 return ORJSONResponse(
-                    status_code=403, content={"detail": "CSRF missing Origin/Referer"}
+                    status_code=403,
+                    content={"error": {"code": "csrf_missing_or_invalid_origin"}},
                 )
 
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
@@ -123,6 +152,9 @@ def create_app() -> FastAPI:
             structlog.contextvars.clear_contextvars()
         response.headers["X-Request-ID"] = request_id
         return response
+
+    # F02: per-route idempotency for mutating requests with `Idempotency-Key`.
+    app.middleware("http")(idempotency_middleware)
 
     register_exception_handlers(app)
 

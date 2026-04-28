@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.config import get_settings
@@ -24,6 +25,7 @@ from jumlaos.core.security import (
     verify_code,
 )
 from jumlaos.logging import get_logger
+from jumlaos.shared.otp_transport import deliver_otp
 from jumlaos.shared.phone import PhoneError, normalize_ma
 from jumlaos.shared.time import utcnow
 
@@ -60,12 +62,15 @@ class SwitchBusinessRequest(BaseModel):
 def _set_auth_cookies(response: Response, *, access: str, refresh: str) -> None:
     settings = get_settings()
     secure = settings.env in {"prod", "staging"}
+    # F09: SameSite=Strict on the access cookie defends against CSRF-by-cookie
+    # for cross-site top-level navigations. Refresh stays Lax because some
+    # browsers drop Strict cookies on first-party redirects after login.
     response.set_cookie(
         ACCESS_COOKIE,
         access,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite="strict",
         max_age=settings.access_token_ttl_seconds,
         path="/",
     )
@@ -78,6 +83,17 @@ def _set_auth_cookies(response: Response, *, access: str, refresh: str) -> None:
         max_age=settings.refresh_token_ttl_seconds,
         path="/",
     )
+
+
+def _next_lockout_window(consecutive_failures: int) -> timedelta:
+    """F08 exponential backoff: 15 min → 1 h → 24 h."""
+    if consecutive_failures < 5:
+        return timedelta(0)
+    if consecutive_failures < 10:
+        return timedelta(minutes=15)
+    if consecutive_failures < 20:
+        return timedelta(hours=1)
+    return timedelta(hours=24)
 
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
@@ -94,6 +110,15 @@ async def otp_request(
 
     now = utcnow()
     window = now - timedelta(minutes=1)
+
+    # F08 — refuse to issue an OTP while the *user* is locked out.
+    locked_user = (
+        await session.execute(
+            select(User).where(User.phone_e164 == phone, User.otp_lockout_until > now)
+        )
+    ).scalar_one_or_none()
+    if locked_user is not None:
+        raise RateLimited("otp_phone_locked")
 
     # 1. Per-phone rate limit: max 1 request per minute
     recent_phone_stmt = select(func.count(OtpCode.id)).where(
@@ -125,9 +150,10 @@ async def otp_request(
             ip=request.client.host if request.client else None,
         )
     )
-    # TODO(whatsapp): enqueue a WhatsApp template message for prod.
     if settings.is_dev:
         log.info("dev_otp_generated", phone=phone, code=code)
+    # F07 — dispatch out of band so the route never blocks on Meta's API.
+    await deliver_otp(phone_e164=phone, code=code)
 
     return OtpRequestResponse(
         phone=phone,
@@ -198,13 +224,26 @@ async def otp_verify(
                 {"id": otp.id},
             )
             await attempt_session.commit()
+
+        # F08 — if the user has hit otp_max_attempts on this code, lock the
+        # *phone* (not just this code row). Exponential backoff escalates with
+        # consecutive failed attempt windows.
+        new_attempts = otp.attempts + 1
+        if new_attempts >= settings.otp_max_attempts:
+            existing_user = (
+                await session.execute(select(User).where(User.phone_e164 == phone))
+            ).scalar_one_or_none()
+            if existing_user is not None:
+                window = _next_lockout_window(new_attempts)
+                if window > timedelta(0):
+                    existing_user.otp_lockout_until = now + window
         await audit_record(
             session,
             business_id=None,
             user_id=None,
             action="auth.otp.verify_failed",
             entity_type="auth",
-            after={"phone": phone, "reason": "mismatch", "attempts": otp.attempts + 1},
+            after={"phone": phone, "reason": "mismatch", "attempts": new_attempts},
             request=request,
         )
         raise Unauthorized("otp_mismatch")
@@ -249,7 +288,8 @@ async def otp_verify(
         role=role.value if role else None,
     )
     refresh, jti = issue_refresh_token(user_id=user.id)
-    session.add(RefreshToken(user_id=user.id, jti=jti))
+    family_id = uuid.uuid4().hex
+    session.add(RefreshToken(user_id=user.id, jti=jti, family_id=family_id))
     _set_auth_cookies(response, access=access, refresh=refresh)
 
     await audit_record(
@@ -310,7 +350,33 @@ async def refresh_tokens(
     rt = (
         await session.execute(select(RefreshToken).where(RefreshToken.jti == jti))
     ).scalar_one_or_none()
-    if not rt or rt.revoked_at is not None:
+    if rt is None:
+        raise Unauthorized("refresh_token_revoked_or_invalid")
+
+    # F19 — reuse detection. A presented jti that is already revoked means the
+    # original holder rotated, then the *old* token came back later (only
+    # possible if it was leaked). Revoke the entire family and audit.
+    if rt.revoked_at is not None:
+        await session.execute(
+            text(
+                """
+                UPDATE refresh_tokens
+                SET revoked_at = COALESCE(revoked_at, now()),
+                    revoked_reason = 'reuse_detected'
+                WHERE family_id = :fid
+                """
+            ),
+            {"fid": rt.family_id},
+        )
+        await audit_record(
+            session,
+            business_id=None,
+            user_id=user_id,
+            action="auth.refresh.reuse_detected",
+            entity_type="auth",
+            after={"family_id": rt.family_id, "jti": jti},
+            request=request,
+        )
         raise Unauthorized("refresh_token_revoked_or_invalid")
 
     rt.last_used_at = utcnow()
@@ -335,9 +401,10 @@ async def refresh_tokens(
     )
     new_refresh, new_jti = issue_refresh_token(user_id=user_id)
 
-    # Revoke old one, add new one
+    # Rotate within the same family so we can detect reuse later.
     rt.revoked_at = utcnow()
-    session.add(RefreshToken(user_id=user_id, jti=new_jti))
+    rt.revoked_reason = "rotated"
+    session.add(RefreshToken(user_id=user_id, jti=new_jti, family_id=rt.family_id))
 
     _set_auth_cookies(response, access=access, refresh=new_refresh)
     return {"status": "ok"}
@@ -367,6 +434,7 @@ async def switch_business(
         role=m.role.value,
     )
     refresh, jti = issue_refresh_token(user_id=ctx.user_id)
-    session.add(RefreshToken(user_id=ctx.user_id, jti=jti))
+    family_id = uuid.uuid4().hex
+    session.add(RefreshToken(user_id=ctx.user_id, jti=jti, family_id=family_id))
     _set_auth_cookies(response, access=access, refresh=refresh)
     return {"business_id": m.business_id, "role": m.role.value}

@@ -1,15 +1,20 @@
-"""Audit log helper. Call from handlers whenever state changes."""
+"""Audit log helper. Call from handlers whenever state changes.
+
+F03 — writes go to ``audit_outbox`` on the *caller's* session in the same
+transaction as the business action. A Procrastinate task drains the outbox
+into the canonical ``audit_log`` table. If the caller's transaction rolls
+back, the outbox row rolls back with it; we never log work that did not
+actually happen.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jumlaos.core.db import get_sessionmaker
-from jumlaos.core.models import AuditLog
+from jumlaos.core.models import AuditOutbox
 
 
 async def record(
@@ -28,26 +33,17 @@ async def record(
     ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
 
-    # Audit writes go through a fresh session so they survive rollbacks of the caller's transaction.
-    # The new session must apply app.business_id so the audit_log RLS policy permits the insert.
-    async with get_sessionmaker()() as audit_session:
-        rls_value = str(business_id) if business_id is not None else "system"
-        # set_config(name, value, is_local=true) is the parameter-binding-safe equivalent of SET LOCAL.
-        await audit_session.execute(
-            text("SELECT set_config('app.business_id', :v, true)"), {"v": rls_value}
+    session.add(
+        AuditOutbox(
+            business_id=business_id,
+            user_id=user_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            before=before,
+            after=after,
+            request_id=request_id,
+            ip=ip,
+            user_agent=user_agent,
         )
-        audit_session.add(
-            AuditLog(
-                business_id=business_id,
-                user_id=user_id,
-                action=action,
-                entity_type=entity_type,
-                entity_id=entity_id,
-                before=before,
-                after=after,
-                request_id=request_id,
-                ip=ip,
-                user_agent=user_agent,
-            )
-        )
-        await audit_session.commit()
+    )
