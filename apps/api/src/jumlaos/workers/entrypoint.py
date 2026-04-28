@@ -10,6 +10,7 @@ import asyncio
 
 from jumlaos.config import get_settings
 from jumlaos.logging import configure_logging, get_logger
+from jumlaos.workers.app import app
 
 
 async def main() -> None:
@@ -17,10 +18,9 @@ async def main() -> None:
     log = get_logger("jumlaos.worker")
     settings = get_settings()
     log.info("worker_starting", env=settings.env)
-    # The real Procrastinate app lives in jumlaos.workers.app (not yet wired).
-    # Keep this skeleton awake for deploy-health checks.
-    while True:
-        await asyncio.sleep(60)
+
+    async with app.open_async():
+        await app.run_worker_async()
 
 
 if __name__ == "__main__":

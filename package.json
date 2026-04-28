@@ -20,5 +20,16 @@
   "devDependencies": {
     "prettier": "^3.3.3",
     "prettier-plugin-tailwindcss": "^0.6.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "serialize-javascript@<7.0.3": "^7.0.3"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-h25m-26qc-wcjf",
+        "GHSA-q4gf-8mx6-v5v3"
+      ]
+    }
   }
 }

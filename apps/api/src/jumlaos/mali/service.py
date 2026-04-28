@@ -126,6 +126,7 @@ async def create_debtor(
     display_name: str,
     city: str | None,
     address_text: str | None,
+    ice_number: str | None = None,
     credit_limit_centimes: int,
     payment_terms_days: int,
     notes: str | None,
@@ -149,6 +150,7 @@ async def create_debtor(
         alias_normalized=_normalize_alias(display_name),
         city=city,
         address_text=address_text,
+        ice_number=ice_number,
         credit_limit_centimes=credit_limit_centimes,
         payment_terms_days=payment_terms_days,
         notes=notes,
@@ -172,7 +174,20 @@ async def record_debt_event(
     reference: str | None,
     raw_message: str | None,
     source: str,
+    idempotency_key: str | None = None,
 ) -> DebtEvent:
+    if idempotency_key:
+        existing = (
+            await session.execute(
+                select(DebtEvent).where(
+                    DebtEvent.business_id == business_id,
+                    DebtEvent.idempotency_key == idempotency_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return existing
+
     debtor = (
         await session.execute(
             select(Debtor).where(
@@ -195,6 +210,7 @@ async def record_debt_event(
         raw_message=raw_message,
         source=source,
         created_by_user_id=user_id,
+        idempotency_key=idempotency_key,
     )
     session.add(evt)
     await session.flush()
@@ -361,7 +377,20 @@ async def create_invoice_draft(
     payment_terms_days: int,
     lines: list[tuple[str, float, int, int]],  # (desc, qty, unit_price_centimes, vat_rate_bps)
     notes: str | None,
+    idempotency_key: str | None = None,
 ) -> Invoice:
+    if idempotency_key:
+        existing = (
+            await session.execute(
+                select(Invoice).where(
+                    Invoice.business_id == business_id,
+                    Invoice.idempotency_key == idempotency_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return existing
+
     invoice = Invoice(
         business_id=business_id,
         debtor_id=debtor_id,
@@ -370,6 +399,7 @@ async def create_invoice_draft(
         payment_terms_days=payment_terms_days,
         created_by_user_id=user_id,
         notes=notes,
+        idempotency_key=idempotency_key,
     )
     session.add(invoice)
     await session.flush()
@@ -449,7 +479,20 @@ async def apply_invoice_payment(
     method: str,
     paid_at: datetime | None,
     reference: str | None,
+    idempotency_key: str | None = None,
 ) -> Payment:
+    if idempotency_key:
+        existing = (
+            await session.execute(
+                select(Payment).where(
+                    Payment.business_id == business_id,
+                    Payment.idempotency_key == idempotency_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return existing
+
     invoice = (
         await session.execute(
             select(Invoice).where(
@@ -471,6 +514,7 @@ async def apply_invoice_payment(
         amount_centimes=amount_centimes,
         paid_at=paid_at or utcnow(),
         reference=reference,
+        idempotency_key=idempotency_key,
     )
     session.add(pmt)
 

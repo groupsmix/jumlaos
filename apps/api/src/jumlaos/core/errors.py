@@ -57,6 +57,22 @@ def _envelope(*, code: str, message: str, details: object | None = None) -> dict
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(Unauthorized)
+    async def unauthorized_handler(request: Request, exc: Unauthorized) -> ORJSONResponse:
+        log.warning(
+            "auth_failure",
+            reason=exc.message,
+            path=request.url.path,
+            method=request.method,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        return ORJSONResponse(
+            _envelope(code=exc.code, message=exc.message),
+            status_code=exc.status_code,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     @app.exception_handler(DomainError)
     async def _domain(_: Request, exc: DomainError) -> ORJSONResponse:
         return ORJSONResponse(

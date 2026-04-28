@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import io
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from jumlaos.core.audit import record as audit_record
 from jumlaos.core.context import RequestContext
@@ -45,14 +46,16 @@ from jumlaos.shared.phone import PhoneError, normalize_ma
 router = APIRouter()
 
 
-def _block_driver(ctx: RequestContext) -> None:
+def _block_driver(ctx: RequestContext = Depends(current_context)) -> RequestContext:
     if ctx.role == Role.DRIVER:
         raise Forbidden("driver_role_cannot_access_mali")
+    return ctx
 
 
-def _require_write(ctx: RequestContext) -> None:
+def _require_write(ctx: RequestContext = Depends(current_context)) -> RequestContext:
     if ctx.role in {Role.DRIVER, Role.ACCOUNTANT}:
         raise Forbidden(f"{ctx.role.value}_role_is_read_only_for_this_action")
+    return ctx
 
 
 def _debtor_out(debtor: Debtor, bal: DebtBalance | None) -> DebtorOut:
@@ -60,6 +63,7 @@ def _debtor_out(debtor: Debtor, bal: DebtBalance | None) -> DebtorOut:
         id=debtor.id,
         phone=debtor.phone_e164,
         display_name=debtor.display_name,
+        ice_number=debtor.ice_number,
         city=debtor.city,
         address_text=debtor.address_text,
         credit_limit_centimes=debtor.credit_limit_centimes,
@@ -80,10 +84,9 @@ async def list_debtors(
     q: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> DebtorListResponse:
-    _block_driver(ctx)
     stmt = (
         select(Debtor, DebtBalance)
         .outerjoin(
@@ -123,10 +126,9 @@ async def list_debtors(
 @router.post("/debtors", response_model=DebtorOut, status_code=201)
 async def create_debtor(
     body: DebtorCreate,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
 ) -> DebtorOut:
-    _require_write(ctx)
     try:
         phone = normalize_ma(body.phone)
     except PhoneError as exc:
@@ -139,6 +141,7 @@ async def create_debtor(
         display_name=body.display_name,
         city=body.city,
         address_text=body.address_text,
+        ice_number=body.ice_number,
         credit_limit_centimes=body.credit_limit_centimes,
         payment_terms_days=body.payment_terms_days,
         notes=body.notes,
@@ -158,10 +161,9 @@ async def create_debtor(
 @router.get("/debtors/{debtor_id}", response_model=DebtorOut)
 async def get_debtor(
     debtor_id: int,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> DebtorOut:
-    _block_driver(ctx)
     stmt = (
         select(Debtor, DebtBalance)
         .outerjoin(
@@ -184,10 +186,9 @@ async def get_debtor(
 async def update_debtor(
     debtor_id: int,
     body: DebtorUpdate,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
 ) -> DebtorOut:
-    _require_write(ctx)
     debtor = (
         await session.execute(
             select(Debtor).where(
@@ -201,10 +202,24 @@ async def update_debtor(
         raise NotFound("debtor_not_found")
 
     data = body.model_dump(exclude_unset=True)
-    for k, v in data.items():
-        setattr(debtor, k, v)
     if "display_name" in data:
+        debtor.display_name = data["display_name"]
         debtor.alias_normalized = " ".join(debtor.display_name.strip().lower().split())
+    if "city" in data:
+        debtor.city = data["city"]
+    if "ice_number" in data:
+        debtor.ice_number = data["ice_number"]
+    if "address_text" in data:
+        debtor.address_text = data["address_text"]
+    if "credit_limit_centimes" in data:
+        debtor.credit_limit_centimes = data["credit_limit_centimes"]
+    if "payment_terms_days" in data:
+        debtor.payment_terms_days = data["payment_terms_days"]
+    if "notes" in data:
+        debtor.notes = data["notes"]
+    if "is_blocked" in data:
+        debtor.is_blocked = data["is_blocked"]
+
     await session.flush()
     bal = (
         await session.execute(
@@ -220,10 +235,9 @@ async def update_debtor(
 @router.delete("/debtors/{debtor_id}", status_code=204, response_class=Response)
 async def delete_debtor(
     debtor_id: int,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
 ) -> Response:
-    _require_write(ctx)
     if ctx.role != Role.OWNER:
         raise Forbidden("only_owner_can_delete_debtor")
     await service.soft_delete_debtor(session, business_id=ctx.business_id, debtor_id=debtor_id)
@@ -236,10 +250,10 @@ async def delete_debtor(
 @router.post("/debt-events", response_model=DebtEventOut, status_code=201)
 async def create_debt_event(
     body: DebtEventCreate,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
+    idempotency_key: str | None = Header(default=None),
 ) -> DebtEventOut:
-    _require_write(ctx)
     evt = await service.record_debt_event(
         session,
         business_id=ctx.business_id,
@@ -251,6 +265,7 @@ async def create_debt_event(
         reference=body.reference,
         raw_message=body.raw_message,
         source=body.source.value if isinstance(body.source, DebtEventSource) else body.source,
+        idempotency_key=idempotency_key,
     )
     await audit_record(
         session,
@@ -277,10 +292,9 @@ async def create_debt_event(
 async def void_debt_event(
     event_id: int,
     body: DebtEventVoid,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
 ) -> DebtEventOut:
-    _require_write(ctx)
     evt = await service.void_debt_event(
         session,
         business_id=ctx.business_id,
@@ -313,10 +327,9 @@ async def void_debt_event(
 async def list_debt_events(
     debtor_id: int,
     limit: int = Query(default=100, ge=1, le=500),
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> list[DebtEventOut]:
-    _block_driver(ctx)
     rows = (
         (
             await session.execute(
@@ -352,10 +365,9 @@ async def list_debt_events(
 
 @router.get("/dashboard/mali", response_model=MaliDashboard)
 async def dashboard(
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> MaliDashboard:
-    _block_driver(ctx)
     totals = await service.mali_dashboard(session, business_id=ctx.business_id)
 
     top_stmt = (
@@ -384,10 +396,9 @@ async def dashboard(
 
 @router.get("/aging", response_model=AgingResponse)
 async def aging(
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> AgingResponse:
-    _block_driver(ctx)
     rows = await service.compute_aging(session, business_id=ctx.business_id)
     return AgingResponse(
         rows=[
@@ -454,10 +465,10 @@ async def _load_invoice(
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
 async def create_invoice(
     body: InvoiceCreate,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
+    idempotency_key: str | None = Header(default=None),
 ) -> InvoiceOut:
-    _require_write(ctx)
     invoice = await service.create_invoice_draft(
         session,
         business_id=ctx.business_id,
@@ -470,6 +481,7 @@ async def create_invoice(
             for line in body.lines
         ],
         notes=body.notes,
+        idempotency_key=idempotency_key,
     )
     await audit_record(
         session,
@@ -488,14 +500,14 @@ async def create_invoice(
 async def list_invoices(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> list[InvoiceOut]:
-    _block_driver(ctx)
     rows = (
         (
             await session.execute(
                 select(Invoice)
+                .options(selectinload(Invoice.lines))
                 .where(Invoice.business_id == ctx.business_id)
                 .order_by(Invoice.created_at.desc())
                 .limit(limit)
@@ -507,18 +519,16 @@ async def list_invoices(
     )
     out: list[InvoiceOut] = []
     for inv in rows:
-        _, lines = await _load_invoice(session, business_id=ctx.business_id, invoice_id=inv.id)
-        out.append(_invoice_out(inv, lines))
+        out.append(_invoice_out(inv, list(inv.lines)))
     return out
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut)
 async def get_invoice(
     invoice_id: int,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> InvoiceOut:
-    _block_driver(ctx)
     invoice, lines = await _load_invoice(
         session, business_id=ctx.business_id, invoice_id=invoice_id
     )
@@ -528,10 +538,9 @@ async def get_invoice(
 @router.post("/invoices/{invoice_id}/issue", response_model=InvoiceOut)
 async def issue_invoice(
     invoice_id: int,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
 ) -> InvoiceOut:
-    _require_write(ctx)
     invoice = await service.issue_invoice(
         session, business_id=ctx.business_id, invoice_id=invoice_id
     )
@@ -552,10 +561,10 @@ async def issue_invoice(
 async def invoice_payment(
     invoice_id: int,
     body: InvoicePaymentCreate,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_require_write),
     session: AsyncSession = Depends(db),
+    idempotency_key: str | None = Header(default=None),
 ) -> InvoiceOut:
-    _require_write(ctx)
     await service.apply_invoice_payment(
         session,
         business_id=ctx.business_id,
@@ -565,6 +574,7 @@ async def invoice_payment(
         method=body.method.value,
         paid_at=body.paid_at,
         reference=body.reference,
+        idempotency_key=idempotency_key,
     )
     invoice, lines = await _load_invoice(
         session, business_id=ctx.business_id, invoice_id=invoice_id
@@ -587,15 +597,9 @@ async def invoice_payment(
 @router.get("/tax-periods/{yyyymm}/export.csv")
 async def export_tax_period(
     yyyymm: str,
-    ctx: RequestContext = Depends(current_context),
+    ctx: RequestContext = Depends(_block_driver),
     session: AsyncSession = Depends(db),
 ) -> StreamingResponse:
-    """Export issued invoices for a given `YYYY-MM` period as DGI-conformant CSV.
-
-    Columns follow DGI's "Etat des factures" format. Archive retention is
-    handled server-side (R2 immutable bucket policy, 10-year TTL).
-    """
-    _block_driver(ctx)
     try:
         year_s, month_s = yyyymm.split("-")
         year, month = int(year_s), int(month_s)
@@ -604,17 +608,20 @@ async def export_tax_period(
     except ValueError as exc:
         raise NotFound("invalid_period_format") from exc
 
+    # LEFT JOIN: Invoice.debtor_id is nullable, and the DGI export must include every issued
+    # invoice for the period (compliance), even when no debtor is linked.
     stmt = (
-        select(Invoice)
+        select(Invoice, Debtor)
+        .outerjoin(Debtor, Invoice.debtor_id == Debtor.id)
         .where(
             Invoice.business_id == ctx.business_id,
             Invoice.status != "draft",
-            func.extract("year", Invoice.issued_at) == year,
-            func.extract("month", Invoice.issued_at) == month,
+            Invoice.issued_at >= f"{year:04d}-{month:02d}-01",
+            Invoice.issued_at < f"{year + (month // 12):04d}-{(month % 12) + 1:02d}-01",
         )
         .order_by(Invoice.number.asc())
     )
-    rows = (await session.execute(stmt)).scalars().all()
+    rows = (await session.execute(stmt)).all()
 
     buffer = io.StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
@@ -629,12 +636,12 @@ async def export_tax_period(
             "statut",
         ]
     )
-    for inv in rows:
+    for inv, debtor in rows:
         writer.writerow(
             [
                 inv.number or "",
                 inv.issued_at.date().isoformat() if inv.issued_at else "",
-                "",  # client ICE not captured in MVP; add when debtor row includes it
+                (debtor.ice_number if debtor else "") or "",
                 f"{inv.subtotal_centimes / 100:.2f}",
                 f"{inv.vat_centimes / 100:.2f}",
                 f"{inv.total_centimes / 100:.2f}",

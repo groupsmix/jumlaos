@@ -81,7 +81,10 @@ class User(Base, TimestampMixin):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    memberships: Mapped[list[Membership]] = relationship(back_populates="user")
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="user",
+        foreign_keys="[Membership.user_id]",
+    )
 
 
 class Business(Base, TimestampMixin, SoftDeleteMixin):
@@ -115,6 +118,9 @@ class Business(Base, TimestampMixin, SoftDeleteMixin):
         JSONB, nullable=False, default=lambda: {"mali": True, "talab": False, "makhzen": False}
     )
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(
+        String(50), unique=True, nullable=True
+    )
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="business")
 
@@ -144,6 +150,18 @@ class Membership(Base, TimestampMixin):
 
     user: Mapped[User] = relationship(back_populates="memberships", foreign_keys=[user_id])
     business: Mapped[Business] = relationship(back_populates="memberships")
+
+
+class RefreshToken(Base, TimestampMixin):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    jti: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OtpCode(Base, TimestampMixin):

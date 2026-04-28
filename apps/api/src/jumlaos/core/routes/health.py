@@ -6,18 +6,31 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jumlaos import __version__
 from jumlaos.core.deps import db
 
-router = APIRouter()
+router = APIRouter(tags=["ops"])
 
 
-@router.get("/health", include_in_schema=False)
-async def health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__}
+@router.get("/livez", status_code=200)
+async def livez() -> dict[str, str]:
+    """Liveness probe.
+
+    Returns 200 immediately if the event loop is running.
+    """
+    return {"status": "alive"}
 
 
-@router.get("/ready", include_in_schema=False)
-async def ready(session: AsyncSession = Depends(db)) -> dict[str, str]:
+@router.get("/readyz", status_code=200)
+async def readyz(session: AsyncSession = Depends(db)) -> dict[str, str]:
+    """Readiness probe.
+
+    Returns 200 if the app is ready to serve traffic. Checks DB connectivity.
+    (Future: check Redis connectivity here too).
+    """
+    # Check DB
     await session.execute(text("SELECT 1"))
+
+    # Check Redis (stub for when redis is actually wired)
+    # await redis.ping()
+
     return {"status": "ready"}

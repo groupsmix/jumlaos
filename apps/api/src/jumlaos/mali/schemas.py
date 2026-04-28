@@ -15,6 +15,7 @@ from jumlaos.mali.models import DebtEventKind, DebtEventSource, InvoiceStatus, P
 class DebtorCreate(BaseModel):
     phone: str = Field(min_length=5, max_length=25)
     display_name: str = Field(min_length=1, max_length=200)
+    ice_number: str | None = Field(default=None, max_length=32)
     city: str | None = None
     address_text: str | None = None
     credit_limit_centimes: int = Field(default=0, ge=0)
@@ -26,6 +27,7 @@ class DebtorUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=200)
     city: str | None = None
     address_text: str | None = None
+    ice_number: str | None = None
     credit_limit_centimes: int | None = Field(default=None, ge=0)
     payment_terms_days: int | None = Field(default=None, ge=0, le=365)
     is_blocked: bool | None = None
@@ -38,6 +40,7 @@ class DebtorOut(BaseModel):
     display_name: str
     city: str | None
     address_text: str | None
+    ice_number: str | None
     credit_limit_centimes: int
     payment_terms_days: int
     risk_score: int
