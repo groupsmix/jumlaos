@@ -46,8 +46,6 @@ async def with_business_context(
     * ``int``      — sets ``app.business_id`` to that integer; RLS active.
     * ``"system"`` — opts out of RLS for cross-tenant maintenance work.
     """
-    if business_id is None:  # type: ignore[unreachable]
-        raise TenantContextError("with_business_context: business_id is required")
     if not (isinstance(business_id, int) or business_id == "system"):
         raise TenantContextError(f"with_business_context: invalid business_id {business_id!r}")
 

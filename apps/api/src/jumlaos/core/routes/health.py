@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from typing import Literal, cast
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -72,7 +72,10 @@ async def _check_redis() -> None:
 
     client = Redis.from_url(settings.redis_url, socket_timeout=_DEPENDENCY_TIMEOUT_S)
     try:
-        await client.ping()
+        # redis-py's stubs declare ``ping()`` as ``Awaitable[bool] | bool``
+        # because the same class is used for sync + async. The async variant
+        # always returns an awaitable.
+        await cast("Awaitable[bool]", client.ping())
     finally:
         await client.aclose()
 
@@ -88,6 +91,23 @@ async def _check_r2() -> None:
             raise RuntimeError(f"r2 head returned {resp.status_code}")
 
 
+async def _check_db_pair(
+    session: AsyncSession,
+) -> list[tuple[str, Literal["ok", "timeout", "error"], int]]:
+    """Run the two DB-bound checks sequentially.
+
+    ``AsyncSession`` is not safe for concurrent use from multiple
+    coroutines (its connection/transaction state can corrupt under
+    interleaved ``await session.execute(...)`` calls), so the postgres
+    and procrastinate probes share one session in series rather than
+    racing through ``asyncio.gather``.
+    """
+    return [
+        await _with_timeout("postgres", lambda: _check_postgres(session)),
+        await _with_timeout("procrastinate", lambda: _check_procrastinate(session)),
+    ]
+
+
 @router.get("/readyz")
 async def readyz(session: AsyncSession = Depends(db)) -> dict[str, object]:
     """Readiness probe — DB + Procrastinate + Redis + R2.
@@ -95,13 +115,12 @@ async def readyz(session: AsyncSession = Depends(db)) -> dict[str, object]:
     Returns 200 only when all configured dependencies respond inside
     500 ms each. Returns 503 with per-dependency status otherwise.
     """
-    results = await asyncio.gather(
-        _with_timeout("postgres", lambda: _check_postgres(session)),
-        _with_timeout("procrastinate", lambda: _check_procrastinate(session)),
+    db_results, redis_result, r2_result = await asyncio.gather(
+        _check_db_pair(session),
         _with_timeout("redis", _check_redis),
         _with_timeout("r2", _check_r2),
-        return_exceptions=False,
     )
+    results = [*db_results, redis_result, r2_result]
     statuses = {name: status for name, status, _ms in results}
     timings = {name: ms for name, _status, ms in results}
     all_ok = all(s == "ok" for s in statuses.values())

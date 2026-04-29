@@ -26,24 +26,32 @@ from slowapi.util import get_remote_address
 from starlette.responses import Response
 
 from jumlaos.config import get_settings
+from jumlaos.shared.phone import PhoneError, normalize_ma
 
 
 def _phone_from_request(request: Request) -> str:
     """Best-effort phone extractor for OTP routes.
 
     Reads the raw JSON body once and stashes it on ``request.state`` so the
-    handler can re-read without paying for a second body parse. If parsing
-    fails the limiter falls back to the IP address — never silently let a
-    request through unkeyed.
+    handler can re-read without paying for a second body parse. The phone is
+    normalized to E.164 before keying so that varying input formats of the
+    same number share one rate-limit bucket; on parse failure the limiter
+    falls back to the IP address — never silently let a request through
+    unkeyed.
     """
-    cached: dict[str, object] | None = getattr(request.state, "json_body", None)
+    cached: dict[str, object] | None = (
+        request.state.json_body if hasattr(request.state, "json_body") else None
+    )
     if cached is None:
         # We cannot read async body in a sync slowapi key func; rely on the
         # middleware to populate request.state.json_body before routing.
         return get_remote_address(request)
     phone = cached.get("phone") if isinstance(cached, dict) else None
     if isinstance(phone, str) and phone:
-        return f"phone:{phone}"
+        try:
+            return f"phone:{normalize_ma(phone)}"
+        except PhoneError:
+            pass
     return get_remote_address(request)
 
 
@@ -56,7 +64,7 @@ def _user_id_from_request(request: Request) -> str:
     """
     from jumlaos.core.security import decode_token
 
-    user_id = getattr(request.state, "user_id", None)
+    user_id = request.state.user_id if hasattr(request.state, "user_id") else None
     if user_id is not None:
         return f"user:{user_id}"
 
