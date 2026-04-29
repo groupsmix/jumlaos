@@ -19,9 +19,14 @@ from fastapi.responses import ORJSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from jumlaos import __version__
-from jumlaos.config import get_settings
+from jumlaos.config import Settings, get_settings
 from jumlaos.core.errors import register_exception_handlers
 from jumlaos.core.idempotency import idempotency_middleware
+from jumlaos.core.rate_limit import (
+    cache_json_body_middleware,
+    limiter,
+    rate_limit_exceeded_handler,
+)
 from jumlaos.core.routes import auth as auth_routes
 from jumlaos.core.routes import health as health_routes
 from jumlaos.core.routes import me as me_routes
@@ -54,38 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     get_logger().info("jumlaos.shutdown")
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
-
-    # F17: do not expose Swagger UI in prod.
-    docs_url = None if settings.is_prod else "/v1/docs"
-
-    app = FastAPI(
-        title="JumlaOS API",
-        version=__version__,
-        default_response_class=ORJSONResponse,
-        docs_url=docs_url,
-        redoc_url=None,
-        openapi_url="/v1/openapi.json" if not settings.is_prod else None,
-        lifespan=lifespan,
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=[
-            "Content-Type",
-            "Authorization",
-            "X-CSRF-Token",
-            "Idempotency-Key",
-            "X-Request-ID",
-        ],
-        expose_headers=["X-Request-ID"],
-        max_age=600,
-    )
-
+def _register_middleware(app: FastAPI, settings: Settings) -> None:
     @app.middleware("http")
     async def secure_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
         response = await call_next(request)
@@ -156,9 +130,12 @@ def create_app() -> FastAPI:
     # F02: per-route idempotency for mutating requests with `Idempotency-Key`.
     app.middleware("http")(idempotency_middleware)
 
-    register_exception_handlers(app)
+    # F10/F20: pre-read OTP request bodies so the slowapi phone-keyed limiter
+    # has a phone number to hash on.
+    app.middleware("http")(cache_json_body_middleware)
 
-    # Mount routers
+
+def _mount_routers(app: FastAPI) -> None:
     app.include_router(health_routes.router, prefix="/v1")
     app.include_router(auth_routes.router, prefix="/v1/auth", tags=["auth"])
     app.include_router(me_routes.router, prefix="/v1", tags=["me"])
@@ -166,6 +143,50 @@ def create_app() -> FastAPI:
     app.include_router(mali_router, prefix="/v1", tags=["mali"])
     app.include_router(talab_router, prefix="/v1", tags=["talab"])
     app.include_router(whatsapp_router, prefix="/v1", tags=["whatsapp"])
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    # F17: do not expose Swagger UI in prod.
+    docs_url = None if settings.is_prod else "/v1/docs"
+
+    app = FastAPI(
+        title="JumlaOS API",
+        version=__version__,
+        default_response_class=ORJSONResponse,
+        docs_url=docs_url,
+        redoc_url=None,
+        openapi_url="/v1/openapi.json" if not settings.is_prod else None,
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-CSRF-Token",
+            "Idempotency-Key",
+            "X-Request-ID",
+        ],
+        expose_headers=["X-Request-ID"],
+        max_age=600,
+    )
+
+    _register_middleware(app, settings)
+
+    # F10: global rate limiter shared by every route.
+    app.state.limiter = limiter
+    from slowapi.errors import RateLimitExceeded
+
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+    register_exception_handlers(app)
+    _mount_routers(app)
 
     return app
 

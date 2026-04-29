@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from jumlaos.config import get_settings
 from jumlaos.core.deps import db
 from jumlaos.core.models import Business
+from jumlaos.core.rate_limit import ip_key, limiter
 from jumlaos.logging import get_logger
 from jumlaos.talab.models import WaInboundMessage
 
@@ -47,6 +48,7 @@ def _verify_signature(body: bytes, signature_header: str | None, secret: str) ->
 
 
 @router.post("/webhook/whatsapp")
+@limiter.limit("100/second", key_func=ip_key)
 async def whatsapp_inbound(
     request: Request,
     session: AsyncSession = Depends(db),
