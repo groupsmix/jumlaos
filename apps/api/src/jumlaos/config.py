@@ -97,7 +97,8 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _validate_prod_security(self) -> Settings:
+    def _validate_prod_security(self) -> Settings:  # noqa: PLR0912
+
         if os.getenv("FLY_APP_NAME") and self.env == "dev":
             raise ValueError("Cannot run in dev mode on Fly.io. Set JUMLAOS_ENV=prod or staging.")
         if self.env in ("prod", "staging"):
@@ -128,6 +129,32 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "OTP_TRANSPORT=whatsapp requires WHATSAPP_PHONE_NUMBER_ID + "
                     "WHATSAPP_ACCESS_TOKEN"
+                )
+            # F21: R2 hardening. Refuse to boot in prod with the dev bucket
+            # name. If any R2 setting is configured, require the full quad
+            # (endpoint + bucket + access key id + secret access key) so the
+            # R2 driver can actually authenticate.
+            if self.r2_bucket == "jumlaos-dev":
+                raise ValueError("Must provide non-default R2_BUCKET in prod/staging")
+            r2_partial = any(
+                [
+                    self.r2_endpoint,
+                    self.r2_access_key_id,
+                    self.r2_secret_access_key,
+                ]
+            )
+            r2_complete = all(
+                [
+                    self.r2_endpoint,
+                    self.r2_access_key_id,
+                    self.r2_secret_access_key,
+                    self.r2_bucket,
+                ]
+            )
+            if r2_partial and not r2_complete:
+                raise ValueError(
+                    "R2 partially configured; require R2_ENDPOINT + R2_BUCKET + "
+                    "R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY together"
                 )
         return self
 

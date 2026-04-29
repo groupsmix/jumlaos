@@ -1,4 +1,7 @@
-# Fly.io config for the JumlaOS API (primary: Paris)
+# Fly.io config for the JumlaOS API.
+# Primary region: cdg (Paris). Failover region: ams (Amsterdam) — set via
+# `flyctl scale count 2 --region cdg,ams`.
+#
 # Create app: flyctl apps create jumlaos-api --org jumlaos
 # Deploy:     flyctl deploy --config infra/fly/api.fly.toml
 
@@ -16,9 +19,18 @@ primary_region = "cdg"
 [http_service]
   internal_port       = 8080
   force_https         = true
-  auto_stop_machines  = "suspend"
+  # F12: real HA. ``stop`` (not ``suspend``) tears the VM down so a fresh
+  # one comes back instead of resuming a possibly-stuck process. Two
+  # always-on machines guarantee zero-downtime rolling deploys and survive
+  # a single-machine failure without relying on ``auto_start_machines``.
+  auto_stop_machines  = "stop"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
+
+  [http_service.concurrency]
+    type        = "requests"
+    soft_limit  = 200
+    hard_limit  = 250
 
   [[http_service.checks]]
     interval = "15s"
@@ -30,6 +42,13 @@ primary_region = "cdg"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
+
+# F12 — Fly autoscaling: cap previously unset, allowing runaway scale-up
+# in a traffic spike. 1–4 keeps cost bounded while letting the platform
+# react to load.
+[[scaling]]
+  min_machines = 2
+  max_machines = 4
 
 [[services]]
   protocol = "tcp"

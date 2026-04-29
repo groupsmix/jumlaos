@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from jumlaos.core.db import get_sessionmaker
 from jumlaos.core.models import AuditLog
 from jumlaos.logging import get_logger
 from jumlaos.shared.adapters import sms as sms_adapter
 from jumlaos.shared.adapters import whatsapp as whatsapp_adapter
 from jumlaos.shared.otp_transport import OTP_TEMPLATE_LANG, OTP_TEMPLATE_NAME
 from jumlaos.workers.app import app
+from jumlaos.workers.context import with_business_context
 
 log = get_logger("jumlaos.tasks")
 
@@ -46,12 +46,10 @@ async def drain_audit_outbox(timestamp: int) -> None:
     """Move ``audit_outbox`` rows into ``audit_log``.
 
     Runs every minute. Each batch is bounded so a quiet/busy minute can
-    never starve the worker. Uses ``app.business_id='system'`` to bypass
-    per-tenant RLS.
+    never starve the worker. Uses ``with_business_context("system")`` to
+    bypass per-tenant RLS — the privilege is declared at the call site.
     """
-    sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
-        await session.execute(text("SELECT set_config('app.business_id', 'system', true)"))
+    async with with_business_context("system") as session:
         rows = (
             await session.execute(
                 text(
@@ -101,9 +99,7 @@ async def check_ledger_drift(timestamp: int) -> None:
 
     Pages on any non-zero diff. Property-tested in CI via Hypothesis.
     """
-    sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
-        await session.execute(text("SELECT set_config('app.business_id', 'system', true)"))
+    async with with_business_context("system") as session:
         result = (
             await session.execute(
                 text(
