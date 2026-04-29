@@ -1,21 +1,28 @@
 """Auth: phone OTP request + verify + logout + switch-business."""
 
-from __future__ import annotations
+# NOTE: ``from __future__ import annotations`` is intentionally omitted here.
+# slowapi wraps the route handlers via ``functools.wraps``, and FastAPI uses
+# ``typing.get_type_hints`` on the wrapped function. With future-annotations
+# enabled, the body schemas (``OtpRequest``, ``OtpVerify``) come through as
+# ``ForwardRef("OtpRequest")`` which the wrapper's globals can't resolve at
+# OpenAPI build time. Keeping concrete typing here keeps slowapi + FastAPI
+# happy without sprinkling Annotated[...] everywhere.
 
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Body, Depends, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jumlaos.config import get_settings
 from jumlaos.core.audit import record as audit_record
 from jumlaos.core.context import RequestContext
 from jumlaos.core.deps import ACCESS_COOKIE, REFRESH_COOKIE, current_context, db
-from jumlaos.core.errors import Conflict, NotFound, RateLimited, Unauthorized
+from jumlaos.core.errors import Conflict, NotFound, Unauthorized
 from jumlaos.core.models import Membership, MembershipStatus, OtpCode, RefreshToken, Role, User
+from jumlaos.core.rate_limit import ip_key, limiter, phone_key, user_key
 from jumlaos.core.security import (
     decode_token,
     generate_otp,
@@ -97,9 +104,11 @@ def _next_lockout_window(consecutive_failures: int) -> timedelta:
 
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
+@limiter.limit("1/minute", key_func=phone_key)
+@limiter.limit("5/minute", key_func=ip_key)
 async def otp_request(
-    body: OtpRequest,
     request: Request,
+    body: OtpRequest = Body(...),
     session: AsyncSession = Depends(db),
 ) -> OtpRequestResponse:
     settings = get_settings()
@@ -109,36 +118,18 @@ async def otp_request(
         raise Unauthorized("invalid_phone") from exc
 
     now = utcnow()
-    window = now - timedelta(minutes=1)
 
-    # F08 — refuse to issue an OTP while the *user* is locked out.
+    # F08 — refuse to issue an OTP while the *user* is locked out. Per-phone
+    # and per-IP rate limits are enforced by slowapi above (F10/F20).
     locked_user = (
         await session.execute(
             select(User).where(User.phone_e164 == phone, User.otp_lockout_until > now)
         )
     ).scalar_one_or_none()
     if locked_user is not None:
+        from jumlaos.core.errors import RateLimited
+
         raise RateLimited("otp_phone_locked")
-
-    # 1. Per-phone rate limit: max 1 request per minute
-    recent_phone_stmt = select(func.count(OtpCode.id)).where(
-        OtpCode.phone_e164 == phone,
-        OtpCode.created_at > window,
-    )
-    recent_phone_count = (await session.execute(recent_phone_stmt)).scalar_one()
-    if recent_phone_count >= 1:
-        raise RateLimited("too_many_requests_for_phone")
-
-    # 2. Per-IP rate limit: max 5 requests per minute
-    ip = request.client.host if request.client else None
-    if ip:
-        recent_ip_stmt = select(func.count(OtpCode.id)).where(
-            OtpCode.ip == ip,
-            OtpCode.created_at > window,
-        )
-        recent_ip_count = (await session.execute(recent_ip_stmt)).scalar_one()
-        if recent_ip_count >= 5:
-            raise RateLimited("too_many_requests_from_ip")
 
     code = generate_otp(dev_override="000000" if settings.is_dev else None)
 
@@ -162,10 +153,12 @@ async def otp_request(
 
 
 @router.post("/otp/verify", response_model=OtpVerifyResponse)
+@limiter.limit("5/minute", key_func=phone_key)
+@limiter.limit("30/minute", key_func=ip_key)
 async def otp_verify(
-    body: OtpVerify,
     request: Request,
     response: Response,
+    body: OtpVerify = Body(...),
     session: AsyncSession = Depends(db),
 ) -> OtpVerifyResponse:
     settings = get_settings()
@@ -335,6 +328,7 @@ async def logout(
 
 
 @router.post("/refresh")
+@limiter.limit("6/minute", key_func=user_key)
 async def refresh_tokens(
     request: Request,
     response: Response,

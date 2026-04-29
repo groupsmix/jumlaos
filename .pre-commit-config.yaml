@@ -19,7 +19,7 @@ repos:
     rev: v1.13.0
     hooks:
     -   id: mypy
-        additional_dependencies: [ pydantic, sqlalchemy ]
+        additional_dependencies: [ pydantic, sqlalchemy, redis ]
         exclude: ^apps/api/(alembic|tests)/
 
 -   repo: https://github.com/gitleaks/gitleaks

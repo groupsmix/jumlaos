@@ -30,6 +30,8 @@ dependencies = [
   "boto3>=1.35",
   "itsdangerous>=2.2",
   "pyjwt>=2.12.1",
+  "slowapi>=0.1.9",
+  "limits[redis]>=5.8.0",
 ]
 
 [project.optional-dependencies]
