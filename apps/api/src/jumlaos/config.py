@@ -130,6 +130,12 @@ class Settings(BaseSettings):
                     "OTP_TRANSPORT=whatsapp requires WHATSAPP_PHONE_NUMBER_ID + "
                     "WHATSAPP_ACCESS_TOKEN"
                 )
+            # F22: harden database_url_sync — require sslmode=verify-full in prod
+            # so the Procrastinate connector never talks to Postgres over plain TCP.
+            if self.database_url_sync and "sslmode=" not in self.database_url_sync:
+                raise ValueError(
+                    "DATABASE_URL_SYNC must include sslmode=verify-full in prod/staging"
+                )
             # F21: R2 hardening. Refuse to boot in prod with the dev bucket
             # name. If any R2 setting is configured, require the full quad
             # (endpoint + bucket + access key id + secret access key) so the
