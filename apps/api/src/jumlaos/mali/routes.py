@@ -41,6 +41,7 @@ from jumlaos.mali.schemas import (
     InvoicePaymentCreate,
     MaliDashboard,
 )
+from jumlaos.shared.adapters.crypto import decrypt_field
 from jumlaos.shared.phone import PhoneError, normalize_ma
 
 router = APIRouter()
@@ -63,7 +64,7 @@ def _debtor_out(debtor: Debtor, bal: DebtBalance | None) -> DebtorOut:
         id=debtor.id,
         phone=debtor.phone_e164,
         display_name=debtor.display_name,
-        ice_number=debtor.ice_number,
+        ice_number=decrypt_field(debtor.ice_number),
         city=debtor.city,
         address_text=debtor.address_text,
         credit_limit_centimes=debtor.credit_limit_centimes,
@@ -208,7 +209,9 @@ async def update_debtor(
     if "city" in data:
         debtor.city = data["city"]
     if "ice_number" in data:
-        debtor.ice_number = data["ice_number"]
+        from jumlaos.shared.adapters.crypto import encrypt_field
+
+        debtor.ice_number = encrypt_field(data["ice_number"])
     if "address_text" in data:
         debtor.address_text = data["address_text"]
     if "credit_limit_centimes" in data:

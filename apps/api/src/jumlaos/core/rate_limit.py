@@ -50,7 +50,7 @@ def _phone_from_request(request: Request) -> str:
     if isinstance(phone, str) and phone:
         try:
             return f"phone:{normalize_ma(phone)}"
-        except PhoneError:
+        except PhoneError:  # noqa: S110 — fallback to IP-keyed rate limit is intentional
             pass
     return get_remote_address(request)
 
