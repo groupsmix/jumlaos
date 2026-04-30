@@ -297,6 +297,30 @@ class AuditOutbox(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class EventSubscriberOffset(Base):
+    """F27: Per-subscriber event offsets.
+
+    Each event consumer tracks its own high-water mark instead of a shared
+    ``processed_at`` on ``domain_events``. This lets multiple consumers
+    independently replay or skip events without stepping on each other.
+    """
+
+    __tablename__ = "event_subscriber_offsets"
+    __table_args__ = (
+        UniqueConstraint("subscriber_name", "business_id", name="uq_event_sub_offsets_sub_biz"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    subscriber_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    business_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    last_event_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class IdempotencyKey(Base):
     """Idempotency-Key persistence scoped by ``(business_id, user_id, key)``.
 

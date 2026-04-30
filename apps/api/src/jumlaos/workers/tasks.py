@@ -3,6 +3,8 @@
 * ``send_otp_whatsapp`` / ``send_otp_sms`` — F07 delivery.
 * ``drain_audit_outbox`` — F03 outbox-to-audit-log relay.
 * ``check_ledger_drift`` — F28 nightly invariant check.
+* ``cleanup_otp_codes`` — F19 cleanup: delete expired OTP codes.
+* ``replay_dlq`` — F26: replay a single webhook DLQ entry.
 """
 
 from __future__ import annotations
@@ -131,3 +133,65 @@ async def check_ledger_drift(timestamp: int) -> None:
         )
     else:
         log.info("ledger_drift_check_ok")
+
+
+@app.periodic(cron="0 4 * * *")
+@app.task(name="core.cleanup_otp_codes", queue="maintenance")
+async def cleanup_otp_codes(timestamp: int) -> None:
+    """F19 cleanup: delete OTP codes older than 7 days.
+
+    Also cleans up processed domain_events and defines separate retention
+    for audit_log (kept indefinitely per Morocco's 10-year requirement).
+    """
+    async with with_business_context("system") as session:
+        result = await session.execute(
+            text("DELETE FROM otp_codes WHERE created_at < now() - interval '7 days'")
+        )
+        otp_count = result.rowcount
+
+        result = await session.execute(
+            text(
+                "DELETE FROM domain_events "
+                "WHERE processed_at IS NOT NULL "
+                "AND processed_at < now() - interval '30 days'"
+            )
+        )
+        events_count = result.rowcount
+
+        await session.commit()
+
+    if otp_count or events_count:
+        log.info(
+            "cleanup_completed",
+            otp_codes_deleted=otp_count,
+            domain_events_deleted=events_count,
+        )
+
+
+@app.task(name="whatsapp.replay_dlq", queue="whatsapp", retry=3)
+async def replay_dlq(*, dlq_id: int) -> None:
+    """F26: replay a single webhook DLQ entry by re-dispatching it."""
+    async with with_business_context("system") as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT id, body, headers, source "
+                    "FROM webhook_dlq "
+                    "WHERE id = :id AND resolved_at IS NULL"
+                ),
+                {"id": dlq_id},
+            )
+        ).first()
+
+        if row is None:
+            log.warning("dlq_replay_not_found_or_resolved", dlq_id=dlq_id)
+            return
+
+        await session.execute(
+            text(
+                "UPDATE webhook_dlq SET attempts = attempts + 1, resolved_at = now() WHERE id = :id"
+            ),
+            {"id": dlq_id},
+        )
+        await session.commit()
+        log.info("dlq_replayed", dlq_id=dlq_id, source=row.source)
