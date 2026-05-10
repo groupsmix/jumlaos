@@ -209,36 +209,43 @@ async def otp_verify(
 
         from jumlaos.core.db import get_sessionmaker
 
-        # Increment attempts in an isolated session: the surrounding handler raises
-        # Unauthorized below, which would roll back the request session and lose the write.
+        # F18 — increment attempts, lock the phone, AND write the audit record
+        # in a single isolated session. The request session rolls back on the
+        # Unauthorized raise below; using the same isolated session for all
+        # three writes ensures nothing is lost.
+        new_attempts = otp.attempts + 1
         async with get_sessionmaker()() as attempt_session:
             await attempt_session.execute(
                 text("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = :id"),
                 {"id": otp.id},
             )
-            await attempt_session.commit()
 
-        # F08 — if the user has hit otp_max_attempts on this code, lock the
-        # *phone* (not just this code row). Exponential backoff escalates with
-        # consecutive failed attempt windows.
-        new_attempts = otp.attempts + 1
-        if new_attempts >= settings.otp_max_attempts:
-            existing_user = (
-                await session.execute(select(User).where(User.phone_e164 == phone))
-            ).scalar_one_or_none()
-            if existing_user is not None:
+            # F08 — if the user has hit otp_max_attempts on this code, lock the
+            # *phone* (not just this code row). Exponential backoff escalates
+            # with consecutive failed attempt windows.
+            if new_attempts >= settings.otp_max_attempts:
                 window = _next_lockout_window(new_attempts)
                 if window > timedelta(0):
-                    existing_user.otp_lockout_until = now + window
-        await audit_record(
-            session,
-            business_id=None,
-            user_id=None,
-            action="auth.otp.verify_failed",
-            entity_type="auth",
-            after={"phone": phone, "reason": "mismatch", "attempts": new_attempts},
-            request=request,
-        )
+                    await attempt_session.execute(
+                        text(
+                            "UPDATE users SET otp_lockout_until = :until WHERE phone_e164 = :phone"
+                        ),
+                        {"until": now + window, "phone": phone},
+                    )
+
+            # Write the audit record on the same isolated session so it
+            # survives the Unauthorized rollback on the request session.
+            await audit_record(
+                attempt_session,
+                business_id=None,
+                user_id=None,
+                action="auth.otp.verify_failed",
+                entity_type="auth",
+                after={"phone": phone, "reason": "mismatch", "attempts": new_attempts},
+                request=request,
+            )
+            await attempt_session.commit()
+
         raise Unauthorized("otp_mismatch")
 
     otp.consumed_at = now
@@ -319,7 +326,7 @@ async def logout(
                 ).scalar_one_or_none()
                 if rt:
                     rt.revoked_at = utcnow()
-        except Unauthorized:
+        except Unauthorized:  # noqa: S110 — best-effort revocation on logout
             pass
 
     response.delete_cookie(ACCESS_COOKIE, path="/")

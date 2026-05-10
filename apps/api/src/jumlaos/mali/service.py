@@ -21,6 +21,7 @@ from jumlaos.mali.models import (
     InvoiceStatus,
     Payment,
 )
+from jumlaos.shared.adapters.crypto import encrypt_field
 from jumlaos.shared.money import apply_vat
 from jumlaos.shared.time import utcnow
 
@@ -150,7 +151,7 @@ async def create_debtor(
         alias_normalized=_normalize_alias(display_name),
         city=city,
         address_text=address_text,
-        ice_number=ice_number,
+        ice_number=encrypt_field(ice_number),
         credit_limit_centimes=credit_limit_centimes,
         payment_terms_days=payment_terms_days,
         notes=notes,
