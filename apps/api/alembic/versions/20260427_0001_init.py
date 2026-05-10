@@ -39,13 +39,17 @@ def upgrade() -> None:
     )
     op.create_index("ix_users_phone_e164", "users", ["phone_e164"], unique=True)
 
-    business_plan = postgresql.ENUM("mali", "mali_talab", "full", name="business_plan")
+    business_plan = postgresql.ENUM(
+        "mali", "mali_talab", "full", name="business_plan", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE business_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
-    business_status = postgresql.ENUM("active", "suspended", "terminated", name="business_status")
+    business_status = postgresql.ENUM(
+        "active", "suspended", "terminated", name="business_status", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE business_status AS ENUM ('active', 'suspended', 'terminated'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
@@ -86,14 +90,22 @@ def upgrade() -> None:
     )
 
     membership_role = postgresql.ENUM(
-        "owner", "manager", "staff", "accountant", "driver", name="membership_role"
+        "owner",
+        "manager",
+        "staff",
+        "accountant",
+        "driver",
+        name="membership_role",
+        create_type=False,
     )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE membership_role AS ENUM ('owner', 'manager', 'staff', 'accountant', 'driver'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
-    membership_status = postgresql.ENUM("active", "revoked", name="membership_status")
+    membership_status = postgresql.ENUM(
+        "active", "revoked", name="membership_status", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE membership_status AS ENUM ('active', 'revoked'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
@@ -217,7 +229,9 @@ def upgrade() -> None:
         sa.Column("resolved_at", sa.DateTime(timezone=True)),
     )
 
-    sub_plan = postgresql.ENUM("mali", "mali_talab", "full", name="subscription_plan")
+    sub_plan = postgresql.ENUM(
+        "mali", "mali_talab", "full", name="subscription_plan", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE subscription_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
@@ -281,7 +295,13 @@ def upgrade() -> None:
     op.create_index("ix_debtors_business_alias", "debtors", ["business_id", "alias_normalized"])
 
     debt_event_kind = postgresql.ENUM(
-        "debt", "payment", "adjustment", "writeoff", "refund", name="debt_event_kind"
+        "debt",
+        "payment",
+        "adjustment",
+        "writeoff",
+        "refund",
+        name="debt_event_kind",
+        create_type=False,
     )
     op.execute(
         sa.text(
@@ -289,7 +309,7 @@ def upgrade() -> None:
         )
     )
     debt_event_source = postgresql.ENUM(
-        "whatsapp", "web", "order", "import", name="debt_event_source"
+        "whatsapp", "web", "order", "import", name="debt_event_source", create_type=False
     )
     op.execute(
         sa.text(
@@ -297,7 +317,7 @@ def upgrade() -> None:
         )
     )
     invoice_status = postgresql.ENUM(
-        "draft", "issued", "paid", "partial", "void", name="invoice_status"
+        "draft", "issued", "paid", "partial", "void", name="invoice_status", create_type=False
     )
     op.execute(
         sa.text(
@@ -305,14 +325,23 @@ def upgrade() -> None:
         )
     )
     payment_method = postgresql.ENUM(
-        "cash", "bank_transfer", "cheque", "cmi", "cashplus", "other", name="payment_method"
+        "cash",
+        "bank_transfer",
+        "cheque",
+        "cmi",
+        "cashplus",
+        "other",
+        name="payment_method",
+        create_type=False,
     )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE payment_method AS ENUM ('cash', 'bank_transfer', 'cheque', 'cmi', 'cashplus', 'other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
-    tax_period_status = postgresql.ENUM("open", "closed", name="tax_period_status")
+    tax_period_status = postgresql.ENUM(
+        "open", "closed", name="tax_period_status", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE tax_period_status AS ENUM ('open', 'closed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
@@ -540,14 +569,14 @@ def upgrade() -> None:
 
     # ---- Makhzen tables ----
     product_unit = postgresql.ENUM(
-        "piece", "kg", "liter", "box", "dozen", "bottle", name="product_unit"
+        "piece", "kg", "liter", "box", "dozen", "bottle", name="product_unit", create_type=False
     )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE product_unit AS ENUM ('piece', 'kg', 'liter', 'box', 'dozen', 'bottle'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
-    product_status = postgresql.ENUM("active", "archived", name="product_status")
+    product_status = postgresql.ENUM("active", "archived", name="product_status", create_type=False)
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE product_status AS ENUM ('active', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
@@ -562,6 +591,7 @@ def upgrade() -> None:
         "writeoff",
         "expiry",
         name="stock_movement_kind",
+        create_type=False,
     )
     op.execute(
         sa.text(
@@ -714,14 +744,16 @@ def upgrade() -> None:
     )
 
     # ---- Talab tables ----
-    order_intake_source = postgresql.ENUM("whatsapp", "web", "phone", name="order_intake_source")
+    order_intake_source = postgresql.ENUM(
+        "whatsapp", "web", "phone", name="order_intake_source", create_type=False
+    )
     op.execute(
         sa.text(
             "DO $$ BEGIN CREATE TYPE order_intake_source AS ENUM ('whatsapp', 'web', 'phone'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
         )
     )
     order_intake_status = postgresql.ENUM(
-        "queued", "parsed", "confirmed", "rejected", name="order_intake_status"
+        "queued", "parsed", "confirmed", "rejected", name="order_intake_status", create_type=False
     )
     op.execute(
         sa.text(
@@ -737,6 +769,7 @@ def upgrade() -> None:
         "cancelled",
         "refused",
         name="order_status",
+        create_type=False,
     )
     op.execute(
         sa.text(
@@ -744,7 +777,12 @@ def upgrade() -> None:
         )
     )
     order_payment_method = postgresql.ENUM(
-        "cash_on_delivery", "credit", "prepaid", "bank_transfer", name="order_payment_method"
+        "cash_on_delivery",
+        "credit",
+        "prepaid",
+        "bank_transfer",
+        name="order_payment_method",
+        create_type=False,
     )
     op.execute(
         sa.text(
