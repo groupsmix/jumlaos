@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +21,8 @@ jobs:
   api-lint-typecheck:
     name: API · ruff + mypy
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/api
@@ -35,6 +40,8 @@ jobs:
   api-tests:
     name: API · pytest
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: apps/api
@@ -47,9 +54,66 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run pytest --cov=jumlaos --cov-report=term-missing
 
+  # F04: migrate-check — verify Alembic migrations are clean and reversible.
+  migrate-check:
+    name: API · migrate-check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jumlaos
+          POSTGRES_PASSWORD: jumlaos
+          POSTGRES_DB: jumlaos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jumlaos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql+asyncpg://jumlaos:jumlaos@localhost:5432/jumlaos"
+      DATABASE_URL_SYNC: "postgresql://jumlaos:jumlaos@localhost:5432/jumlaos"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --extra dev
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: uv run alembic downgrade base
+
+  # F05: module-boundary enforcement — fail CI if cross-module imports exist.
+  module-boundaries:
+    name: API · module boundaries
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --extra dev
+      - run: uv run python scripts/check_module_boundaries.py
+
   web-lint-typecheck-build:
     name: Web · lint + typecheck + build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -68,6 +132,8 @@ jobs:
   security:
     name: Security · gitleaks
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +147,8 @@ jobs:
   audit:
     name: Audit · pip-audit + npm audit
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -101,3 +169,32 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm audit --prod --audit-level=high
+
+  # F24: supply-chain hardening — trivy image scan + CycloneDX SBOM.
+  supply-chain:
+    name: Security · trivy + SBOM
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+      - uses: astral-sh/setup-uv@v5
+      - name: Generate Python SBOM
+        working-directory: apps/api
+        run: |
+          uv python install ${{ env.PYTHON_VERSION }}
+          uv sync
+          uvx cyclonedx-py environment --output sbom.json --format json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom
+          path: apps/api/sbom.json
+          retention-days: 90

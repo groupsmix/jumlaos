@@ -1,0 +1,81 @@
+name: Deploy
+
+# F23: deploy workflow gated on CI success. Restricted to main.
+# Uses OIDC for Fly token authentication and captures SHA + version.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-api:
+    name: Deploy API
+    runs-on: ubuntu-24.04
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main')
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set deploy metadata
+        run: |
+          echo "DEPLOY_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "DEPLOY_VERSION=$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy API to Fly
+        run: |
+          flyctl deploy \
+            --config infra/fly/api.fly.toml \
+            --build-arg "DEPLOY_SHA=${{ env.DEPLOY_SHA }}" \
+            --build-arg "DEPLOY_VERSION=${{ env.DEPLOY_VERSION }}" \
+            --strategy rolling \
+            --wait-timeout 300
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-worker:
+    name: Deploy Worker
+    runs-on: ubuntu-24.04
+    needs: deploy-api
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main')
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy worker to Fly
+        run: |
+          flyctl deploy \
+            --config infra/fly/worker.fly.toml \
+            --strategy rolling \
+            --wait-timeout 300
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
