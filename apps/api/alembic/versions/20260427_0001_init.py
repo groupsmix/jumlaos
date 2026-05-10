@@ -40,13 +40,17 @@ def upgrade() -> None:
     op.create_index("ix_users_phone_e164", "users", ["phone_e164"], unique=True)
 
     business_plan = postgresql.ENUM("mali", "mali_talab", "full", name="business_plan")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE business_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE business_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     business_status = postgresql.ENUM("active", "suspended", "terminated", name="business_status")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE business_status AS ENUM ('active', 'suspended', 'terminated'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE business_status AS ENUM ('active', 'suspended', 'terminated'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     op.create_table(
         "businesses",
         sa.Column("id", sa.BigInteger(), primary_key=True),
@@ -84,13 +88,17 @@ def upgrade() -> None:
     membership_role = postgresql.ENUM(
         "owner", "manager", "staff", "accountant", "driver", name="membership_role"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE membership_role AS ENUM ('owner', 'manager', 'staff', 'accountant', 'driver'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE membership_role AS ENUM ('owner', 'manager', 'staff', 'accountant', 'driver'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     membership_status = postgresql.ENUM("active", "revoked", name="membership_status")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE membership_status AS ENUM ('active', 'revoked'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE membership_status AS ENUM ('active', 'revoked'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     op.create_table(
         "memberships",
         sa.Column("id", sa.BigInteger(), primary_key=True),
@@ -210,9 +218,11 @@ def upgrade() -> None:
     )
 
     sub_plan = postgresql.ENUM("mali", "mali_talab", "full", name="subscription_plan")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE subscription_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE subscription_plan AS ENUM ('mali', 'mali_talab', 'full'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     op.create_table(
         "subscriptions",
         sa.Column("id", sa.BigInteger(), primary_key=True),
@@ -273,31 +283,41 @@ def upgrade() -> None:
     debt_event_kind = postgresql.ENUM(
         "debt", "payment", "adjustment", "writeoff", "refund", name="debt_event_kind"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE debt_event_kind AS ENUM ('debt', 'payment', 'adjustment', 'writeoff', 'refund'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE debt_event_kind AS ENUM ('debt', 'payment', 'adjustment', 'writeoff', 'refund'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     debt_event_source = postgresql.ENUM(
         "whatsapp", "web", "order", "import", name="debt_event_source"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE debt_event_source AS ENUM ('whatsapp', 'web', 'order', 'import'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE debt_event_source AS ENUM ('whatsapp', 'web', 'order', 'import'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     invoice_status = postgresql.ENUM(
         "draft", "issued", "paid", "partial", "void", name="invoice_status"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE invoice_status AS ENUM ('draft', 'issued', 'paid', 'partial', 'void'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE invoice_status AS ENUM ('draft', 'issued', 'paid', 'partial', 'void'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     payment_method = postgresql.ENUM(
         "cash", "bank_transfer", "cheque", "cmi", "cashplus", "other", name="payment_method"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE payment_method AS ENUM ('cash', 'bank_transfer', 'cheque', 'cmi', 'cashplus', 'other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE payment_method AS ENUM ('cash', 'bank_transfer', 'cheque', 'cmi', 'cashplus', 'other'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     tax_period_status = postgresql.ENUM("open", "closed", name="tax_period_status")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE tax_period_status AS ENUM ('open', 'closed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE tax_period_status AS ENUM ('open', 'closed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
 
     op.create_table(
         "invoices",
@@ -522,13 +542,17 @@ def upgrade() -> None:
     product_unit = postgresql.ENUM(
         "piece", "kg", "liter", "box", "dozen", "bottle", name="product_unit"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE product_unit AS ENUM ('piece', 'kg', 'liter', 'box', 'dozen', 'bottle'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE product_unit AS ENUM ('piece', 'kg', 'liter', 'box', 'dozen', 'bottle'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     product_status = postgresql.ENUM("active", "archived", name="product_status")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE product_status AS ENUM ('active', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE product_status AS ENUM ('active', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     stock_movement_kind = postgresql.ENUM(
         "receipt",
         "sale",
@@ -539,9 +563,11 @@ def upgrade() -> None:
         "expiry",
         name="stock_movement_kind",
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE stock_movement_kind AS ENUM ('receipt', 'sale', 'transfer_out', 'transfer_in', 'adjustment', 'writeoff', 'expiry'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE stock_movement_kind AS ENUM ('receipt', 'sale', 'transfer_out', 'transfer_in', 'adjustment', 'writeoff', 'expiry'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
 
     op.create_table(
         "warehouses",
@@ -689,15 +715,19 @@ def upgrade() -> None:
 
     # ---- Talab tables ----
     order_intake_source = postgresql.ENUM("whatsapp", "web", "phone", name="order_intake_source")
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE order_intake_source AS ENUM ('whatsapp', 'web', 'phone'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE order_intake_source AS ENUM ('whatsapp', 'web', 'phone'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     order_intake_status = postgresql.ENUM(
         "queued", "parsed", "confirmed", "rejected", name="order_intake_status"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE order_intake_status AS ENUM ('queued', 'parsed', 'confirmed', 'rejected'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE order_intake_status AS ENUM ('queued', 'parsed', 'confirmed', 'rejected'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     order_status = postgresql.ENUM(
         "draft",
         "confirmed",
@@ -708,15 +738,19 @@ def upgrade() -> None:
         "refused",
         name="order_status",
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE order_status AS ENUM ('draft', 'confirmed', 'picked', 'out_for_delivery', 'delivered', 'cancelled', 'refused'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE order_status AS ENUM ('draft', 'confirmed', 'picked', 'out_for_delivery', 'delivered', 'cancelled', 'refused'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
     order_payment_method = postgresql.ENUM(
         "cash_on_delivery", "credit", "prepaid", "bank_transfer", name="order_payment_method"
     )
-    op.execute(sa.text(
-        "DO $$ BEGIN CREATE TYPE order_payment_method AS ENUM ('cash_on_delivery', 'credit', 'prepaid', 'bank_transfer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-    ))
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN CREATE TYPE order_payment_method AS ENUM ('cash_on_delivery', 'credit', 'prepaid', 'bank_transfer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+        )
+    )
 
     op.create_table(
         "order_intakes",
