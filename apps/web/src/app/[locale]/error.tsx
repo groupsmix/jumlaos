@@ -13,9 +13,12 @@ export default function ErrorBoundary({
 }) {
   const t = useTranslations("errors");
   useEffect(() => {
+    // Report to Sentry when available (optional peer dep)
     if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_SENTRY_DSN) {
-      void import("@sentry/nextjs").then((Sentry) => Sentry.captureException(error)).catch(() => {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__sentryReportError?.(error);
     }
+    console.error(error);
   }, [error]);
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">

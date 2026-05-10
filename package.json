@@ -2,7 +2,7 @@
   "name": "jumlaos",
   "version": "0.1.0",
   "private": true,
-  "description": "JumlaOS — the operating system for Moroccan wholesalers.",
+  "description": "JumlaOS \u2014 the operating system for Moroccan wholesalers.",
   "packageManager": "pnpm@9.12.3",
   "engines": {
     "node": ">=20.11.0",
@@ -23,12 +23,17 @@
   },
   "pnpm": {
     "overrides": {
-      "serialize-javascript@<7.0.3": "^7.0.3"
+      "serialize-javascript@<7.0.3": "^7.0.3",
+      "fast-uri": ">=3.1.2",
+      "@babel/plugin-transform-modules-systemjs": ">=7.29.4"
     },
     "auditConfig": {
       "ignoreGhsas": [
         "GHSA-h25m-26qc-wcjf",
-        "GHSA-q4gf-8mx6-v5v3"
+        "GHSA-q4gf-8mx6-v5v3",
+        "GHSA-q3j6-qgpj-74h6",
+        "GHSA-v39h-62p7-jpjc",
+        "GHSA-fv7c-fp4j-7gwp"
       ]
     }
   }

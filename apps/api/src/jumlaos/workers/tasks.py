@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 
 from jumlaos.core.models import AuditLog
 from jumlaos.logging import get_logger
@@ -144,19 +145,19 @@ async def cleanup_otp_codes(timestamp: int) -> None:
     for audit_log (kept indefinitely per Morocco's 10-year requirement).
     """
     async with with_business_context("system") as session:
-        result = await session.execute(
+        cur: CursorResult = await session.execute(  # type: ignore[assignment]
             text("DELETE FROM otp_codes WHERE created_at < now() - interval '7 days'")
         )
-        otp_count = result.rowcount
+        otp_count = cur.rowcount
 
-        result = await session.execute(
+        cur2: CursorResult = await session.execute(  # type: ignore[assignment]
             text(
                 "DELETE FROM domain_events "
                 "WHERE processed_at IS NOT NULL "
                 "AND processed_at < now() - interval '30 days'"
             )
         )
-        events_count = result.rowcount
+        events_count = cur2.rowcount
 
         await session.commit()
 
