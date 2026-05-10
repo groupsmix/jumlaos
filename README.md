@@ -3,6 +3,9 @@
 > The operating system for Moroccan wholesalers.
 > Replaces the paper carnet, WhatsApp chaos, and Excel sheet.
 
+> **Release status:** `v0.1.0-beta` — **JumlaOS Mali Private Beta**.
+> Only the **Mali** module is shipped. **Talab** and **Makhzen** are gated behind per-business feature flags (`modules_enabled`) and are **disabled by default** until their respective launches. Do not market this build as a complete Mali + Talab + Makhzen suite.
+
 JumlaOS is a modular SaaS built around three sub-brands that map to the real
 burning pains of a Moroccan **jumala** (wholesaler):
 
@@ -153,3 +156,12 @@ In short:
 ## License
 
 Proprietary. © 2026 JumlaOS. All rights reserved.
+
+
+## Release & versioning
+
+- Current release: **v0.1.0-beta** — see [`CHANGELOG.md`](./CHANGELOG.md) and [`docs/release-notes/v0.1.0-beta.md`](./docs/release-notes/v0.1.0-beta.md).
+- Pre-release security checklist: [`docs/security-checklist.md`](./docs/security-checklist.md).
+- Deployment guide: [`docs/deployment.md`](./docs/deployment.md).
+- Known limitations: [`docs/known-limitations.md`](./docs/known-limitations.md).
+- Privacy: [`PRIVACY.md`](./PRIVACY.md) — Terms: [`TERMS.md`](./TERMS.md) — Security: [`SECURITY.md`](./SECURITY.md).

@@ -47,5 +47,12 @@
     "loading": "Chargement…",
     "error_generic": "Une erreur est survenue. Réessayez.",
     "search": "Recherche"
+  },
+  "errors": {
+    "not_found": "Cette page est introuvable.",
+    "go_home": "Retour à l’accueil",
+    "generic_title": "Une erreur est survenue",
+    "generic_body": "Une erreur inattendue est survenue. Veuillez réessayer.",
+    "retry": "Réessayer"
   }
 }
